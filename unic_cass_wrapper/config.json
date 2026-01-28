@@ -15,7 +15,7 @@
     },
 
     "DESIGN_NAME": "user_project_wrapper",
-    "CLOCK_PERIOD": 10,
+    "CLOCK_PERIOD": 20,
     "CLOCK_PORT": "io_clock_PAD",
     "CLOCK_NET": "sg13g2_IOPad_io_clock/p2c",
     "VERILOG_FILES": [
@@ -123,20 +123,20 @@
     ],
 
     "MACROS": {
-            "user_project_example": {
-                "gds": "dir::../unic_cass_wrapper_user_project/user_project_example/final/gds/user_project_example.gds",
-                "lef": "dir::../unic_cass_wrapper_user_project/user_project_example/final/lef/user_project_example.lef",
-                "nl": "dir::../unic_cass_wrapper_user_project/user_project_example/final/pnl/user_project_example.pnl.v",
+            "fft32_project": {
+                "gds": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/gds/fft32_project.gds",
+                "lef": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/lef/fft32_project.lef",
+                "nl": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/pnl/fft32_project.pnl.v",
                 "lib": {
-                    "nom_typ_1p20V_25C": "dir::../unic_cass_wrapper_user_project/user_project_example/final/lib/nom_typ_1p20V_25C/user_project_example__nom_typ_1p20V_25C.lib",
-                    "nom_fast_1p32V_m40C": "dir::../unic_cass_wrapper_user_project/user_project_example/final/lib/nom_fast_1p32V_m40C/user_project_example__nom_fast_1p32V_m40C.lib",
-                    "nom_slow_1p08V_125C": "dir::../unic_cass_wrapper_user_project/user_project_example/final/lib/nom_slow_1p08V_125C/user_project_example__nom_slow_1p08V_125C.lib"
+                    "nom_typ_1p20V_25C": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/lib/nom_typ_1p20V_25C/fft32_project__nom_typ_1p20V_25C.lib",
+                    "nom_fast_1p32V_m40C": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/lib/nom_fast_1p32V_m40C/fft32_project__nom_fast_1p32V_m40C.lib",
+                    "nom_slow_1p08V_125C": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/lib/nom_slow_1p08V_125C/fft32_project__nom_slow_1p08V_125C.lib"
                 },
                 "spef": {
-                    "nom_typ_1p20V_25C": "dir::../unic_cass_wrapper_user_project/user_project_example/final/spef/nom/user_project_example.nom.spef"
+                    "nom_typ_1p20V_25C": "dir::../unic_cass_wrapper_user_project/fft32_project/runs/user_project_run/final/spef/nom/fft32_project.nom.spef"
                 },
                 "instances": {
-                    "user_project_example_inst": {
+                    "u_fft32_project_inst": {
                         "location": [530, 530],
                         "orientation": "N"
                     }
