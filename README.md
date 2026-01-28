@@ -1,6 +1,6 @@
 [![Librelane Digital Flow (UNIC-CASS)](https://github.com/unic-cass/unic-cass-wrapper/actions/workflows/digital-flow.yaml/badge.svg?branch=dev&event=push)](https://github.com/unic-cass/unic-cass-wrapper/actions/workflows/digital-flow.yaml)
 
-# Parallel 32-Point FFT (UNIC-CASS 2025)
+# 32-point Parallel FFT using MDC-8 Architecture (FFT32_PAR, UNIC-CASS 2025)
 
 ## Project Overview
 
@@ -10,24 +10,16 @@ The design implements a high-performance **Mixed-Radix (Radix-4 + Radix-8)** Fas
 
 This milestone represents the **Mock Tapeout**, validating the complete RTL-to-GDSII flow, integration within the official wrapper, and signoff (DRC/LVS/Timing) readiness.
 
+Before the final integration, a comprehensive Physical Design Feasibility Study was conducted to determine the optimal area-to-density ratio and validate timing robustness. You can read the detailed analysis of the preliminary runs (Area Sweeps & Clock Feasibility) here:
+
+[View the full Physical Design & Feasibility Report](docs/pd_previous_study/README.md)
+
 ![Full Chip Layout](docs/img/chip_wrapper.png)
 *Fig 1: Final GDSII Assembly of the FFT32 macro integrated within the user_project_wrapper.*
 
 ### Documentation
 For a deep dive into the architectural decisions, trade-off analysis, and signoff logs, please refer to the comprehensive report:
-[**Download Mock Tapeout Report (PDF)**](https://drive.google.com/file/d/1p1vVzE6i_zUoEKxSQf0StdPmlr8pduX8/view?usp=drive_linkE)
-
-## The Team
-
-This project was developed by the following design team members:
-
-- Adan Juan Angel Lema, *Universidad Nacional del Sur*
-- Julian Font, *Universidad Nacional de Córdoba*
-- Agustín Romero Diaz, *Universidad Tecnológica Nacional*
-- Valentina Mosquera, *Universidad Nacional del Sur*
-- Federico Ignacio Villar, *Universidad Nacional del Sur*
-
-And the Team Mentor is Ariel Luis Pola, from *Universidad Nacional de Córdoba*.
+[**Download Mock Tapeout Report (PDF)**](https://drive.google.com/file/d/1p1vVzE6i_zUoEKxSQf0StdPmlr8pduX8/view?usp=drive_link)
 
 ## Detailed Architecture
 
@@ -70,7 +62,6 @@ A key feature is the observability system running in parallel to the datapath.
     * **Function:** bridges the external SPI commands with the internal chip logic.
     * **CDC (Clock Domain Crossing):** Includes synchronizers to safely transfer signals between the asynchronous SPI domain and the fast system clock domain. It manages **Control Registers** (Configuration) and **Probe Registers** (Status/Sniffing).
 
----
 
 ## System Operation
 
@@ -84,7 +75,6 @@ A key feature is the observability system running in parallel to the datapath.
     * **Counters:** the top level counts valid inputs (`cnt_inputs`) and valid outputs (`cnt_outputs`) to detect packet loss.
     * **Saturation Detection:** a bit in the `error_flags` register latches high if any output value hits the maximum positive or negative rail (+127/-128), indicating clipping.
 
----
 
 ## Interface Specifications (Pinout)
 
@@ -104,7 +94,6 @@ The design is optimized for a minimal footprint, utilizing exactly **8 Digital I
 | `i_spi_mosi` | Input | Master Out Slave In (Configuration Data). |
 | `o_spi_miso` | Output | Master In Slave Out (Status Readback). |
 
----
 
 ## Register Map
 
@@ -125,8 +114,6 @@ The Debug Unit exposes the following memory-mapped registers via SPI:
 * **0x05 - `last_out_im`**: Last valid Imaginary output value.
 * **0x06 - `mid_data_re`**: Intermediate debug probe (Twiddle output).
 
-### Debug Subsystem
-The design includes a dedicated **SPI Slave (Mode 0)** independent of the main clock domain. It features a **CDC Snapshot mechanism**: upon triggering `CS_N`, internal fast counters and status flags are latched into a shadow register, ensuring stable and bit-coherent readback via the slow SPI bus.
 
 ## Physical Implementation Results
 
@@ -153,5 +140,5 @@ The following metrics were obtained from the final integration run (`user_projec
   <img src="docs/img/chip_placement.png" width="45%" alt="Full Chip Placement">
 </p>
 <p align="center">
-  <em>Fig 3: (Left) Hardened FFT32 Macro Layout. (Right) Final Placement within the User Project Wrapper.</em>
+  <em>Fig 4: (Left) Hardened FFT32 Macro Layout. (Right) Final Placement within the User Project Wrapper.</em>
 </p>
