@@ -34,6 +34,7 @@ And the Team Mentor is Ariel Luis Pola, from *Universidad Nacional de Córdoba*.
 The design is hierarchically structured into three main functional domains: **Input/Output Serialization**, the **FFT Computational Core**, and the **Debug/Control Plane**.
 
 ![Top Level Block Diagram](docs/img/high_level_block_diagram.svg)
+
 *Fig 2: High-level architecture showing the Serialization domains, the FFT Core, and the Debug Subsystem.*
 
 ### Data Path Modules
