@@ -5,8 +5,8 @@ module fft4 #(
     parameter NBF_OUTPUT = 7
 )(
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                             VPWR,  // Common digital supply
+    inout                             VGND,  // Common digital ground
     `endif
     output reg signed [NB_OUTPUT-1:0] o_data0_re,
     output reg signed [NB_OUTPUT-1:0] o_data0_im,

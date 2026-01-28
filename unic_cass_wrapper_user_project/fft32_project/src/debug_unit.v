@@ -3,8 +3,8 @@ module debug_unit #(
   parameter integer NB_DATA = 8
 )(
   `ifdef USE_POWER_PINS
-  inout               VPWR,  // Common digital supply
-  inout               VGND,  // Common digital ground
+  inout                       VPWR,  // Common digital supply
+  inout                       VGND,  // Common digital ground
   `endif
   input  wire                 clk,
   input  wire                 rst_n,

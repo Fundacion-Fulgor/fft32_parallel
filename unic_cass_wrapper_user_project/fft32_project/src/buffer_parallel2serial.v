@@ -2,14 +2,14 @@ module buffer_parallel2serial #(
     parameter NB_DATA   = 8
 ) (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                           VPWR,  // Common digital supply
+    inout                           VGND,  // Common digital ground
     `endif
-    input                       i_clk,
-    input                       i_rst_n,
-    input                       i_clk_en,
-    input                       i_valid,
-    input                       i_tx_ready,
+    input                           i_clk,
+    input                           i_rst_n,
+    input                           i_clk_en,
+    input                           i_valid,
+    input                           i_tx_ready,
     input      signed [NB_DATA-1:0] i_data0_re,
     input      signed [NB_DATA-1:0] i_data0_im,
     input      signed [NB_DATA-1:0] i_data1_re,
@@ -28,7 +28,7 @@ module buffer_parallel2serial #(
     input      signed [NB_DATA-1:0] i_data7_im,
     output reg signed [NB_DATA-1:0] o_data_re,
     output reg signed [NB_DATA-1:0] o_data_im,
-    output reg                  o_valid
+    output reg                      o_valid
 );
 
 reg signed [NB_DATA-1:0] mem_re [0:31];

@@ -3,17 +3,17 @@ module twiddle_interface #(
     parameter NBF_DATA = 7
 )(
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                           VPWR,  // Common digital supply
+    inout                           VGND,  // Common digital ground
     `endif
-    input                      i_clk,
-    input                      i_rst_n,
-    input                      i_valid,
-    input                      i_inverse,
-    input  signed [NB_DATA-1:0] i_data0_re, i_data0_im,
-    input  signed [NB_DATA-1:0] i_data1_re, i_data1_im,
-    input  signed [NB_DATA-1:0] i_data2_re, i_data2_im,
-    input  signed [NB_DATA-1:0] i_data3_re, i_data3_im,
+    input                           i_clk,
+    input                           i_rst_n,
+    input                           i_valid,
+    input                           i_inverse,
+    input      signed [NB_DATA-1:0] i_data0_re, i_data0_im,
+    input      signed [NB_DATA-1:0] i_data1_re, i_data1_im,
+    input      signed [NB_DATA-1:0] i_data2_re, i_data2_im,
+    input      signed [NB_DATA-1:0] i_data3_re, i_data3_im,
     output reg signed [NB_DATA-1:0] o_data0_re, o_data0_im,
     output reg signed [NB_DATA-1:0] o_data1_re, o_data1_im,
     output reg signed [NB_DATA-1:0] o_data2_re, o_data2_im,

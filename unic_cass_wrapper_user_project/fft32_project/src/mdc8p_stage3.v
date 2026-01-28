@@ -51,10 +51,10 @@ reg signed [NB_OUTPUT-1:0] next_data1_r, next_data1_i;
 
 always @(*) begin
     if (i_inverse) begin
-        next_data0_r = w_bt0_r[NB_FLY-1 -: NB_OUTPUT]; 
-        next_data0_i = w_bt0_i[NB_FLY-1 -: NB_OUTPUT];
-        next_data1_r = w_bt1_r[NB_FLY-1 -: NB_OUTPUT];
-        next_data1_i = w_bt1_i[NB_FLY-1 -: NB_OUTPUT];
+        next_data0_r = w_bt0_r[NB_FLY-2 -: NB_OUTPUT]; 
+        next_data0_i = w_bt0_i[NB_FLY-2 -: NB_OUTPUT];
+        next_data1_r = w_bt1_r[NB_FLY-2 -: NB_OUTPUT];
+        next_data1_i = w_bt1_i[NB_FLY-2 -: NB_OUTPUT];
     end 
     else begin
         next_data0_r = w_bt0_r[NB_OUTPUT-1:0]; 

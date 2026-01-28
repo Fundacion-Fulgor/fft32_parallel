@@ -3,8 +3,8 @@ module btfly_2 #(
     parameter NB_OUTPUT = 9
 ) (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                      VPWR,  // Common digital supply
+    inout                      VGND,  // Common digital ground
     `endif
     input  [ NB_INPUT - 1 : 0] i_data0_r,
     input  [ NB_INPUT - 1 : 0] i_data0_i,

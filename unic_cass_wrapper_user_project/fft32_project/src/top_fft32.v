@@ -1,7 +1,7 @@
 module top_fft32 (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout       VPWR,  // Common digital supply
+    inout       VGND,  // Common digital ground
     `endif
     output wire o_data,
     output wire o_spi_miso,   

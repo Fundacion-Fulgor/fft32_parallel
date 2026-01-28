@@ -2,8 +2,8 @@ module shift_r2 #(
     parameter NB_DATA   = 8
 ) (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                       VPWR,  // Common digital supply
+    inout                       VGND,  // Common digital ground
     `endif
     input                       i_clk,
     input                       i_clk_en,

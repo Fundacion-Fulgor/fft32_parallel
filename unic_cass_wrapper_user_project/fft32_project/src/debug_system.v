@@ -1,7 +1,7 @@
 module debug_system (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout        VPWR,  // Common digital supply
+    inout        VGND,  // Common digital ground
     `endif
     input        clk,
     input        rst_n,

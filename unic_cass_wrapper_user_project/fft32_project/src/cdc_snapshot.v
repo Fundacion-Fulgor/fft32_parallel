@@ -2,8 +2,8 @@ module cdc_snapshot #(
     parameter integer DATA_WIDTH = 8
 )(
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                        VPWR,  // Common digital supply
+    inout                        VGND,  // Common digital ground
     `endif
     input  wire                  clk,            // fast system clock
     input  wire                  rst_n,          // system reset

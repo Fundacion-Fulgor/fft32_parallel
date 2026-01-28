@@ -14,8 +14,8 @@ module spi_slave_mode0 #(
   parameter integer HDR_LAST_BIT = 7
 )(
   `ifdef USE_POWER_PINS
-  inout               VPWR,  // Common digital supply
-  inout               VGND,  // Common digital ground
+  inout                        VPWR,  // Common digital supply
+  inout                        VGND,  // Common digital ground
   `endif
   input  wire                  rst_n,
   input  wire                  ss_n,

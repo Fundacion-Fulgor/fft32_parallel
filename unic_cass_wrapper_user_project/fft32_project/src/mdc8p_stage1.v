@@ -7,8 +7,8 @@ module mdc8p_stage1 #(
     parameter NBF_TW     = 9
 ) (
     `ifdef USE_POWER_PINS
-    inout               VPWR,  // Common digital supply
-    inout               VGND,  // Common digital ground
+    inout                             VPWR,  // Common digital supply
+    inout                             VGND,  // Common digital ground
     `endif
     input                             i_clk,
     input                             i_rst_n,
