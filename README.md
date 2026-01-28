@@ -31,7 +31,7 @@ The design is hierarchically structured into three main functional domains: **In
 
 ### Data Path Modules
 
-The data path operates on **8-bit signed fixed-point data** (Real and Imaginary components).
+The data path operates on **8-bit signed fixed-point data** (real and imaginary components).
 
 * **`rx_serializer` (Input Interface):**
     * **Function:** handles the ingestion of single-bit serial data streams.
@@ -71,7 +71,7 @@ A key feature is the observability system running in parallel to the datapath.
     * The `rx_serializer` frames the data and passes 8-bit complex words to the `fft32`.
     * Data flows through the split-pipeline (`fft4` $\to$ `twiddle` $\to$ `fft8`).
     * The result is serialized and transmitted on `o_serial_tx`.
-3.  **Observability (Glue Logic):**
+3.  **Observability:**
     * **Counters:** the top level counts valid inputs (`cnt_inputs`) and valid outputs (`cnt_outputs`) to detect packet loss.
     * **Saturation Detection:** a bit in the `error_flags` register latches high if any output value hits the maximum positive or negative rail (+127/-128), indicating clipping.
 
