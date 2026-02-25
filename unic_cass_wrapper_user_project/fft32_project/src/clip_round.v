@@ -3,7 +3,7 @@ module clip_round#(
     parameter   NBF_INP = 30,
     parameter   NB_OUT  = 16,
     parameter   NBF_OUT = 15,
-    parameter   RND_MD  =  0  // 0: SAT-TRUNC, 1: SAT-ROUND
+    parameter   RND_MD  =  1  // 0: SAT-TRUNC, 1: SAT-ROUND
 )
 (
     `ifdef USE_POWER_PINS
@@ -57,11 +57,11 @@ generate
                 assign data_plus_round_im = {i_data_im[NB_INP-1], i_data_im};
             end
             assign w_rnd_re = (~|data_plus_round_re[NB_INP -: SIGNED+1] || &data_plus_round_re[NB_INP -: SIGNED+1]) ?
-                              data_plus_round_re[(NB_INP-SIGNED+1) -: NB_OUT] :
+                              data_plus_round_re[(NB_INP-SIGNED) -: NB_OUT] :
                               (data_plus_round_re[NB_INP]) ? {1'b1,{NB_OUT-1{1'b0}}} : {1'b0,{NB_OUT-1{1'b1}}};
 
             assign w_rnd_im = (~|data_plus_round_im[NB_INP -: SIGNED+1] || &data_plus_round_im[NB_INP -: SIGNED+1]) ?
-                              data_plus_round_im[(NB_INP-SIGNED+1) -: NB_OUT] :
+                              data_plus_round_im[(NB_INP-SIGNED) -: NB_OUT] :
                               (data_plus_round_im[NB_INP]) ? {1'b1,{NB_OUT-1{1'b0}}} : {1'b0,{NB_OUT-1{1'b1}}};
             end
 
