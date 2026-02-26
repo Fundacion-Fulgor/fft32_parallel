@@ -375,7 +375,7 @@ assign mdc3_shift_d1_im = (i_inverse)? (mdc_ff3_data1_im >>> 4) : mdc_ff3_data1_
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc0_clip_round_d0 (
     .i_data_re(mdc0_shift_d0_re),
     .i_data_im(mdc0_shift_d0_im),
@@ -383,7 +383,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc0_d0_im)
 );
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc0_clip_round_d1 (
     .i_data_re(mdc0_shift_d1_re),
     .i_data_im(mdc0_shift_d1_im),
@@ -393,7 +393,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 //---------------------------------------------------------
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc1_clip_round_d0 (
     .i_data_re(mdc1_shift_d0_re),
     .i_data_im(mdc1_shift_d0_im),
@@ -401,7 +401,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc1_d0_im)
 );
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc1_clip_round_d1 (
     .i_data_re(mdc1_shift_d1_re),
     .i_data_im(mdc1_shift_d1_im),
@@ -411,7 +411,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 //---------------------------------------------------------
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc2_clip_round_d0 (
     .i_data_re(mdc2_shift_d0_re),
     .i_data_im(mdc2_shift_d0_im),
@@ -419,7 +419,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc2_d0_im)
 );
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc2_clip_round_d1 (
     .i_data_re(mdc2_shift_d1_re),
     .i_data_im(mdc2_shift_d1_im),
@@ -429,7 +429,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 //---------------------------------------------------------
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc3_clip_round_d0 (
     .i_data_re(mdc3_shift_d0_re),
     .i_data_im(mdc3_shift_d0_im),
@@ -437,7 +437,7 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc3_d0_im)
 );
 
-clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(1)
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc3_clip_round_d1 (
     .i_data_re(mdc3_shift_d1_re),
     .i_data_im(mdc3_shift_d1_im),
