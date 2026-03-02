@@ -34,10 +34,9 @@ module buffer_parallel2serial #(
 reg signed [NB_DATA-1:0] mem_re [0:15];
 reg signed [NB_DATA-1:0] mem_im [0:15];
 
-localparam S_LOADING   = 2'd0;
-localparam S_WAIT_RDY  = 2'd1;
-localparam S_SEND_ITEM = 2'd2;
-localparam S_WAIT_BSY  = 2'd3;
+localparam S_LOADING  = 2'd0;
+localparam S_WAIT_RDY = 2'd1;
+localparam S_WAIT_BSY = 2'd2;
 
 reg [1:0] state;
 reg       batch_count;
@@ -49,6 +48,8 @@ always @(posedge i_clk) begin
         batch_count <= 1'b0;
         read_ptr    <= 4'd0;
         o_valid     <= 1'b0;
+        o_data_re   <= 0;
+        o_data_im   <= 0;
     end
     else if (i_clk_en) begin
         case (state)
@@ -67,8 +68,7 @@ always @(posedge i_clk) begin
                         batch_count <= 1'b0;
                         read_ptr    <= 4'd0;
                         state       <= S_WAIT_RDY;
-                    end
-                    else begin
+                    end else begin
                         batch_count <= batch_count + 1'b1;
                     end
                 end
@@ -76,28 +76,25 @@ always @(posedge i_clk) begin
             S_WAIT_RDY: begin
                 o_valid <= 1'b0;
                 if (i_tx_ready) begin
-                    state <= S_SEND_ITEM;
+                    o_data_re <= mem_re[read_ptr];
+                    o_data_im <= mem_im[read_ptr];
+                    o_valid   <= 1'b1;
+                    state     <= S_WAIT_BSY;
                 end
-            end
-            S_SEND_ITEM: begin
-                o_data_re <= mem_re[read_ptr];
-                o_data_im <= mem_im[read_ptr];
-                o_valid   <= 1'b1;
-                state     <= S_WAIT_BSY;
             end
             S_WAIT_BSY: begin
                 o_valid <= 1'b0;
                 if (!i_tx_ready) begin
                     if (read_ptr == 4'd15) begin
-                        state    <= S_LOADING;
                         read_ptr <= 4'd0;
-                    end
-                    else begin
+                        state    <= S_LOADING;
+                    end else begin
                         read_ptr <= read_ptr + 1'b1;
                         state    <= S_WAIT_RDY;
                     end
                 end
             end
+            default: state <= S_LOADING;
         endcase
     end
 end

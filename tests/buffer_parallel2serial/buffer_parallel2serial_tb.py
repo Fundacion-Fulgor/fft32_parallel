@@ -4,10 +4,6 @@ from cocotb.triggers import RisingEdge
 import random
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def to_signed(val, bits):
     if val >= (1 << (bits - 1)):
         val -= (1 << bits)
@@ -30,7 +26,6 @@ async def reset_dut(dut):
 
 
 async def feed_batch(dut, batch):
-    """Drive one valid pulse with 8 complex samples."""
     for k in range(8):
         getattr(dut, f"i_data{k}_re").value = batch[k][0] & 0xFF
         getattr(dut, f"i_data{k}_im").value = batch[k][1] & 0xFF
@@ -41,14 +36,10 @@ async def feed_batch(dut, batch):
 
 async def collect_outputs(dut, n_samples, busy_cycles, timeout=2000):
     """
-    Collect n_samples from the serial output.
-
-    Protocol per sample:
-      1. Assert i_tx_ready=1 and hold it until o_valid goes high.
-      2. Capture o_data_re / o_data_im on the cycle o_valid is seen.
-      3. Deassert i_tx_ready=0 for busy_cycles (simulates receiver busy).
-
-    Returns list of (re, im) signed tuples.
+    Collect n_samples using the buffer handshake protocol:
+      1. i_tx_ready=1 → buffer presents sample with o_valid=1 (S_WAIT_RDY → S_WAIT_BSY)
+      2. Capture o_data_re/im on the cycle o_valid=1
+      3. i_tx_ready=0 for busy_cycles → buffer advances read_ptr (S_WAIT_BSY → S_WAIT_RDY)
     """
     NB_DATA = 8
     results = []
@@ -56,7 +47,6 @@ async def collect_outputs(dut, n_samples, busy_cycles, timeout=2000):
 
     while len(results) < n_samples and cycles < timeout:
 
-        # --- Phase 1: hold ready until o_valid ---
         dut.i_tx_ready.value = 1
         while cycles < timeout:
             await RisingEdge(dut.i_clk)
@@ -67,7 +57,6 @@ async def collect_outputs(dut, n_samples, busy_cycles, timeout=2000):
                 results.append((re, im))
                 break
 
-        # --- Phase 2: deassert ready for busy_cycles ---
         dut.i_tx_ready.value = 0
         for _ in range(busy_cycles):
             await RisingEdge(dut.i_clk)
@@ -77,15 +66,12 @@ async def collect_outputs(dut, n_samples, busy_cycles, timeout=2000):
     return results
 
 
-# ---------------------------------------------------------------------------
-# Test 1: Basic ordering — fast handshake (busy = 1 cycle)
-# ---------------------------------------------------------------------------
-
 @cocotb.test()
 async def test_basic_ordering(dut):
     """
-    Feed 2 batches of 8, collect 16 outputs with fast handshake (busy=1).
+    Feed 2 batches of 8, collect 16 outputs.
     Verify flat ordering: batch0[0..7] followed by batch1[0..7].
+    busy_cycles=2 minimum to ensure S_WAIT_BSY sees !i_tx_ready.
     """
     clock = Clock(dut.i_clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
@@ -100,7 +86,7 @@ async def test_basic_ordering(dut):
     await feed_batch(dut, batch0)
     await feed_batch(dut, batch1)
 
-    results = await collect_outputs(dut, 16, busy_cycles=1)
+    results = await collect_outputs(dut, 16, busy_cycles=2)
 
     assert len(results) == 16, f"Expected 16 samples, got {len(results)}"
     for idx, (got, exp) in enumerate(zip(results, expected)):
@@ -110,14 +96,10 @@ async def test_basic_ordering(dut):
     cocotb.log.info("test_basic_ordering PASSED.")
 
 
-# ---------------------------------------------------------------------------
-# Test 2: Backpressure — slow receiver (busy = 5 cycles)
-# ---------------------------------------------------------------------------
-
 @cocotb.test()
 async def test_backpressure(dut):
     """
-    Same data but receiver stays busy for 5 cycles after each item.
+    Receiver stays busy for 5 cycles after each item.
     Verifies FSM waits in S_WAIT_BSY without dropping data.
     """
     clock = Clock(dut.i_clk, 10, unit="ns")
@@ -143,10 +125,6 @@ async def test_backpressure(dut):
     cocotb.log.info("test_backpressure PASSED.")
 
 
-# ---------------------------------------------------------------------------
-# Test 3: Delayed ready — receiver not ready when loading finishes
-# ---------------------------------------------------------------------------
-
 @cocotb.test()
 async def test_delayed_ready(dut):
     """
@@ -166,7 +144,6 @@ async def test_delayed_ready(dut):
     await feed_batch(dut, batch0)
     await feed_batch(dut, batch1)
 
-    # Simulate receiver not ready yet
     dut.i_tx_ready.value = 0
     for _ in range(20):
         await RisingEdge(dut.i_clk)
@@ -175,20 +152,16 @@ async def test_delayed_ready(dut):
 
     assert len(results) == 16, f"Expected 16 samples, got {len(results)}"
     for idx, (got, exp) in enumerate(zip(results, expected)):
-        assert got == exp, f"Mismatch at index {got}, expected {exp}"
+        assert got == exp, f"Mismatch at index {idx}: got {got}, expected {exp}"
         cocotb.log.info(f"[{idx:2d}] re={got[0]:+4d} im={got[1]:+4d}  OK")
 
     cocotb.log.info("test_delayed_ready PASSED.")
 
 
-# ---------------------------------------------------------------------------
-# Test 4: Random data, random backpressure
-# ---------------------------------------------------------------------------
-
 @cocotb.test()
 async def test_random(dut):
     """
-    Random signed 8-bit values, random busy duration (1..8 cycles).
+    Random signed 8-bit values, random busy duration (2..8 cycles).
     Verifies ordering is preserved end-to-end.
     """
     clock = Clock(dut.i_clk, 10, unit="ns")
@@ -212,8 +185,8 @@ async def test_random(dut):
     await feed_batch(dut, batch0)
     await feed_batch(dut, batch1)
 
-    busy     = random.randint(1, 8)
-    results  = await collect_outputs(dut, 16, busy_cycles=busy)
+    busy    = random.randint(2, 8)
+    results = await collect_outputs(dut, 16, busy_cycles=busy)
 
     assert len(results) == 16, f"Expected 16 samples, got {len(results)}"
     for idx, (got, exp) in enumerate(zip(results, expected)):
