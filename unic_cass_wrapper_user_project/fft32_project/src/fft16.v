@@ -2,8 +2,8 @@ module fft16 #(
     parameter NB_DATA   = 8
 ) (
     `ifdef USE_POWER_PINS
-    inout                       VPWR,  // Common digital supply
-    inout                       VGND,  // Common digital ground
+    inout                       VPWR,
+    inout                       VGND,
     `endif
     input                       i_clk,
     input                       i_clk_en,
@@ -25,6 +25,10 @@ module fft16 #(
 // WIRE AND REGISTER
 ///////////////////////////////////////////////////////////////////////////////
 
+wire                      buffered_valid;
+wire signed [NB_DATA-1:0] buffered_data_re;
+wire signed [NB_DATA-1:0] buffered_data_im;
+
 wire signed [NB_DATA-1:0] shift_r4_data0_re;
 wire signed [NB_DATA-1:0] shift_r4_data0_im;
 wire signed [NB_DATA-1:0] shift_r4_data1_re;
@@ -44,7 +48,6 @@ wire signed [NB_DATA+1:0] fft4_data2_im;
 wire signed [NB_DATA+1:0] fft4_data3_re;
 wire signed [NB_DATA+1:0] fft4_data3_im;
 wire                      fft4_valid;
-
 
 wire signed [NB_DATA+1:0] shift_r2_ff0_data0_re;
 wire signed [NB_DATA+1:0] shift_r2_ff0_data0_im;
@@ -124,6 +127,27 @@ wire signed [NB_DATA-1:0] rnd_mdc3_d1_re;
 wire signed [NB_DATA-1:0] rnd_mdc3_d1_im;
 
 
+////////////////////////////////////////////////////////////////////////////////////////////
+// INPUT BUFFER
+////////////////////////////////////////////////////////////////////////////////////////////
+
+buffer_serial2parallel #( 
+    .NB_DATA(NB_DATA),
+    .N_DATA(16)
+) u_input_buffer (
+    `ifdef USE_POWER_PINS
+    .VPWR      (VPWR),
+    .VGND      (VGND),
+    `endif
+    .i_clk     (i_clk),
+    .i_rst_n   (i_rst_n),
+    .i_valid   (i_valid),
+    .i_data_re (i_data_re),
+    .i_data_im (i_data_im),
+    .o_valid   (buffered_valid),
+    .o_data_re (buffered_data_re),
+    .o_data_im (buffered_data_im)
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -135,9 +159,9 @@ fft16_shift_r4 #( .NB_DATA(NB_DATA)) u_fft16_shift_r4 (
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
     //---------------------------------------------------------
-    .i_valid    (i_valid),
-    .i_data_re  (i_data_re),
-    .i_data_im  (i_data_im),
+    .i_valid    (buffered_valid),
+    .i_data_re  (buffered_data_re),
+    .i_data_im  (buffered_data_im),
     //---------------------------------------------------------
     .o_data0_re (shift_r4_data0_re),
     .o_data0_im (shift_r4_data0_im),

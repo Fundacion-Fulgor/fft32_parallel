@@ -14,7 +14,7 @@ module fft32_project(
     assign unused_input      = ui_PAD2CORE[16:4];
     assign uo_CORE2PAD[16:2] = 15'b111111111111111;
 
-    top_fft32 u_parallel_fft (
+    top_fft16 u_parallel_fft (
         `ifdef USE_POWER_PINS
         .VPWR       (VPWR),
         .VGND       (VGND),
