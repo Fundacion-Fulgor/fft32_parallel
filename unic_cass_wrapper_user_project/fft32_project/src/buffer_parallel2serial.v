@@ -1,9 +1,9 @@
 module buffer_parallel2serial #(
-    parameter NB_DATA   = 8
+    parameter NB_DATA = 8
 ) (
     `ifdef USE_POWER_PINS
-    inout                           VPWR,  // Common digital supply
-    inout                           VGND,  // Common digital ground
+    inout                           VPWR,
+    inout                           VGND,
     `endif
     input                           i_clk,
     input                           i_rst_n,
@@ -31,25 +31,26 @@ module buffer_parallel2serial #(
     output reg                      o_valid
 );
 
-reg signed [NB_DATA-1:0] mem_re [0:31];
-reg signed [NB_DATA-1:0] mem_im [0:31];
+reg signed [NB_DATA-1:0] mem_re [0:15];
+reg signed [NB_DATA-1:0] mem_im [0:15];
 
-localparam S_LOADING   = 0; // Filling memory from FFT
-localparam S_WAIT_RDY  = 1; // Waiting for TX to be ready
-localparam S_SEND_ITEM = 2; // Pulsing valid for 1 cycle
-localparam S_WAIT_BSY  = 3; // Waiting for TX to acknowledge (go busy)
+localparam S_LOADING  = 2'd0;
+localparam S_WAIT_RDY = 2'd1;
+localparam S_WAIT_BSY = 2'd2;
 
 reg [1:0] state;
-reg [1:0] batch_count;
-reg [4:0] read_ptr;
+reg       batch_count;
+reg [3:0] read_ptr;
 
 always @(posedge i_clk) begin
     if (!i_rst_n) begin
         state       <= S_LOADING;
-        batch_count <= 0;
-        read_ptr    <= 0;
-        o_valid     <= 0;
-    end 
+        batch_count <= 1'b0;
+        read_ptr    <= 4'd0;
+        o_valid     <= 1'b0;
+        o_data_re   <= 0;
+        o_data_im   <= 0;
+    end
     else if (i_clk_en) begin
         case (state)
             S_LOADING: begin
@@ -63,12 +64,11 @@ always @(posedge i_clk) begin
                     mem_re[{batch_count, 3'd5}] <= i_data5_re; mem_im[{batch_count, 3'd5}] <= i_data5_im;
                     mem_re[{batch_count, 3'd6}] <= i_data6_re; mem_im[{batch_count, 3'd6}] <= i_data6_im;
                     mem_re[{batch_count, 3'd7}] <= i_data7_re; mem_im[{batch_count, 3'd7}] <= i_data7_im;
-                    if (batch_count == 2'd3) begin
-                        batch_count <= 0;
-                        read_ptr    <= 0;
+                    if (batch_count == 1'b1) begin
+                        batch_count <= 1'b0;
+                        read_ptr    <= 4'd0;
                         state       <= S_WAIT_RDY;
-                    end 
-                    else begin
+                    end else begin
                         batch_count <= batch_count + 1'b1;
                     end
                 end
@@ -76,28 +76,25 @@ always @(posedge i_clk) begin
             S_WAIT_RDY: begin
                 o_valid <= 1'b0;
                 if (i_tx_ready) begin
-                    state <= S_SEND_ITEM;
+                    o_data_re <= mem_re[read_ptr];
+                    o_data_im <= mem_im[read_ptr];
+                    o_valid   <= 1'b1;
+                    state     <= S_WAIT_BSY;
                 end
-            end
-            S_SEND_ITEM: begin
-                o_data_re <= mem_re[read_ptr];
-                o_data_im <= mem_im[read_ptr];
-                o_valid   <= 1'b1;
-                state     <= S_WAIT_BSY;
             end
             S_WAIT_BSY: begin
                 o_valid <= 1'b0;
                 if (!i_tx_ready) begin
-                    if (read_ptr == 5'd31) begin
+                    if (read_ptr == 4'd15) begin
+                        read_ptr <= 4'd0;
                         state    <= S_LOADING;
-                        read_ptr <= 0;
-                    end 
-                    else begin
+                    end else begin
                         read_ptr <= read_ptr + 1'b1;
                         state    <= S_WAIT_RDY;
                     end
                 end
             end
+            default: state <= S_LOADING;
         endcase
     end
 end
