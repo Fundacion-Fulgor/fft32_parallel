@@ -1,7 +1,7 @@
 module debug_system (
     `ifdef USE_POWER_PINS
-    inout        VPWR,  // Common digital supply
-    inout        VGND,  // Common digital ground
+    inout        VPWR,
+    inout        VGND,
     `endif
     input        clk,
     input        rst_n,
@@ -21,10 +21,9 @@ module debug_system (
 
 wire [6:0]  addr_out;
 wire [7:0]  data_to_dut;
-wire        wr_en;
+wire        rw_bit;
 wire [7:0]  data_from_dut;
-
-wire spi_done;
+wire        spi_done;
 wire [15:0] spi_rx_frame;
 
 spi_slave_mode0 #(
@@ -33,8 +32,8 @@ spi_slave_mode0 #(
     .DATA_BITS  (8)
 ) u_spi_slave (
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+    .VPWR         (VPWR),
+    .VGND         (VGND),
     `endif
     .rst_n        (rst_n),
     .ss_n         (ss_n),
@@ -43,7 +42,8 @@ spi_slave_mode0 #(
     .miso         (miso),
     .addr_out     (addr_out),
     .data_out     (data_to_dut),
-    .write_enable (wr_en),
+    .write_enable (),          // no longer used by debug_unit
+    .rw_bit       (rw_bit),
     .data_in      (data_from_dut),
     .done         (spi_done),
     .rx_frame     (spi_rx_frame)
@@ -56,14 +56,14 @@ debug_unit #(
     .NB_DATA (8)
 ) u_debug_unit (
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+    .VPWR         (VPWR),
+    .VGND         (VGND),
     `endif
     .clk          (clk),
     .rst_n        (rst_n),
     .spi_addr     (addr_out),
     .spi_wdata    (data_to_dut),
-    .spi_wr_en    (wr_en),
+    .spi_rw       (rw_bit),
     .spi_rdata    (data_from_dut),
     .spi_ss_n     (ss_n),
     .status_flags (status_flags),
