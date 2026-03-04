@@ -22,9 +22,10 @@ module fft16_shift_r2 #(
 reg signed [NB_DATA*3-1:0] data_re_q;
 reg signed [NB_DATA*3-1:0] data_im_q;
 reg        [        3-1:0] valid_q;
+reg                        last_valid;
 
 always @(posedge i_clk) begin
-    if(i_clk_en) begin
+    if(i_clk_en && i_valid) begin
         data_re_q[  NB_DATA-1:0      ] <= i_data_re;
         data_re_q[3*NB_DATA-1:NB_DATA] <= data_re_q[2*NB_DATA-1:0];
         data_im_q[  NB_DATA-1:0      ] <= i_data_im;
@@ -34,10 +35,14 @@ always @(posedge i_clk) begin
     end
 end
 
+always @(posedge i_clk) begin
+    last_valid <= i_valid;
+end
+
 assign o_data1_re = data_re_q[NB_DATA-1:0];
 assign o_data1_im = data_im_q[NB_DATA-1:0];
 assign o_data0_re = data_re_q[3*NB_DATA-1-:NB_DATA];
 assign o_data0_im = data_im_q[3*NB_DATA-1-:NB_DATA];
-assign o_valid    = valid_q[2];
+assign o_valid    = valid_q[2] & last_valid;
 
 endmodule

@@ -62,11 +62,13 @@ btfly_2 #(
 );
 
 always @(posedge i_clk) begin
-  r_out0_r <= w_bt0_r;
-  r_out0_i <= w_bt0_i;
-  r_out1_r <= w_bt1_r;
-  r_out1_i <= w_bt1_i;
-  r_valid  <= i_valid;
+    r_valid <= i_valid;
+    if (i_valid) begin
+        r_out0_r <= w_bt0_r;
+        r_out0_i <= w_bt0_i;
+        r_out1_r <= w_bt1_r;
+        r_out1_i <= w_bt1_i;
+    end
 end
 
 assign o_data1_r = r_out0_r;

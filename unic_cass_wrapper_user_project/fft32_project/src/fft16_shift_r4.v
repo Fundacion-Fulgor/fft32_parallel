@@ -26,11 +26,11 @@ module fft16_shift_r4 #(
 reg [NB_DATA*13-1:0] data_re_q;
 reg [NB_DATA*13-1:0] data_im_q;
 reg [        13-1:0] valid_q;
-
+reg                  last_valid;
 integer k;
 
 always @(posedge i_clk) begin
-    if(i_clk_en) begin
+    if(i_clk_en && i_valid) begin
         data_re_q[   NB_DATA-1:0      ] <= i_data_re;
         data_im_q[   NB_DATA-1:0      ] <= i_data_im;
         valid_q  [   0]                 <= i_valid;
@@ -42,6 +42,9 @@ always @(posedge i_clk) begin
     end
 end
 
+always @(posedge i_clk) begin
+    last_valid <= i_valid;
+end
 
 assign o_data3_re = data_re_q[NB_DATA-1:0];
 assign o_data3_im = data_im_q[NB_DATA-1:0];
@@ -51,7 +54,7 @@ assign o_data1_re = data_re_q[ 9*NB_DATA-1-:NB_DATA];
 assign o_data1_im = data_im_q[ 9*NB_DATA-1-:NB_DATA];
 assign o_data0_re = data_re_q[13*NB_DATA-1-:NB_DATA];
 assign o_data0_im = data_im_q[13*NB_DATA-1-:NB_DATA];
-assign o_valid    = valid_q[12];
+assign o_valid    = valid_q[12] & last_valid;
 
 
 endmodule
