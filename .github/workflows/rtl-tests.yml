@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y iverilog
-          pip install cocotb pytest
+          pip install cocotb pytest fxpmath numpy matplotlib
 
       - name: Run all Cocotb tests
         run: |

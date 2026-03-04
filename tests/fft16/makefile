@@ -13,7 +13,6 @@ VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
 VERILOG_SOURCES += $(SRC_DIR)/btfly_2.v
 VERILOG_SOURCES += $(SRC_DIR)/ds_switch.v
 VERILOG_SOURCES += $(SRC_DIR)/buffer_parallel2serial.v
-VERILOG_SOURCES += $(SRC_DIR)/buffer_serial2parallel.v
 
 VERILOG_SOURCES += $(SRC_DIR)/fft4_radix4.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc.v
