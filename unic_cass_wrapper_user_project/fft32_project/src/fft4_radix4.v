@@ -247,6 +247,10 @@ complex_multiplier #(
     .NBF_OUTPUT     (NBF_DATA),
     .RND_MD         (1)
 ) u_complex_multiplier_0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_clk          (i_clk),
     .i_real_A       (s2_x0_re),
     .i_imag_A       (s2_x0_im),
@@ -266,6 +270,10 @@ complex_multiplier #(
     .NBF_OUTPUT (NBF_DATA),
     .RND_MD     (1)
 ) u_complex_multiplier_1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_clk      (i_clk),
     .i_real_A   (s2_x1_re),
     .i_imag_A   (s2_x1_im),
@@ -284,6 +292,10 @@ complex_multiplier #(
     .NBF_OUTPUT (NBF_DATA),
     .RND_MD     (1)
 ) u_complex_multiplier_2 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_clk      (i_clk),
     .i_real_A   (s2_x2_re),
     .i_imag_A   (s2_x2_im),
@@ -302,6 +314,10 @@ complex_multiplier #(
     .NBF_OUTPUT (NBF_DATA),
     .RND_MD     (1)
 ) u_complex_multiplier_3 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_clk      (i_clk),
     .i_real_A   (s2_x3_re),
     .i_imag_A   (s2_x3_im),

@@ -2,8 +2,8 @@ module fft16 #(
     parameter NB_DATA   = 8
 ) (
     `ifdef USE_POWER_PINS
-    inout                       VPWR,
-    inout                       VGND,
+    inout                       VPWR,  // Common digital supply
+    inout                       VGND,  // Common digital ground
     `endif
     input                       i_clk,
     input                       i_clk_en,
@@ -25,10 +25,6 @@ module fft16 #(
 // WIRE AND REGISTER
 ///////////////////////////////////////////////////////////////////////////////
 
-wire                      buffered_valid;
-wire signed [NB_DATA-1:0] buffered_data_re;
-wire signed [NB_DATA-1:0] buffered_data_im;
-
 wire signed [NB_DATA-1:0] shift_r4_data0_re;
 wire signed [NB_DATA-1:0] shift_r4_data0_im;
 wire signed [NB_DATA-1:0] shift_r4_data1_re;
@@ -48,6 +44,7 @@ wire signed [NB_DATA+1:0] fft4_data2_im;
 wire signed [NB_DATA+1:0] fft4_data3_re;
 wire signed [NB_DATA+1:0] fft4_data3_im;
 wire                      fft4_valid;
+
 
 wire signed [NB_DATA+1:0] shift_r2_ff0_data0_re;
 wire signed [NB_DATA+1:0] shift_r2_ff0_data0_im;
@@ -127,27 +124,6 @@ wire signed [NB_DATA-1:0] rnd_mdc3_d1_re;
 wire signed [NB_DATA-1:0] rnd_mdc3_d1_im;
 
 
-////////////////////////////////////////////////////////////////////////////////////////////
-// INPUT BUFFER
-////////////////////////////////////////////////////////////////////////////////////////////
-
-buffer_serial2parallel #( 
-    .NB_DATA(NB_DATA),
-    .N_DATA(16)
-) u_input_buffer (
-    `ifdef USE_POWER_PINS
-    .VPWR      (VPWR),
-    .VGND      (VGND),
-    `endif
-    .i_clk     (i_clk),
-    .i_rst_n   (i_rst_n),
-    .i_valid   (i_valid),
-    .i_data_re (i_data_re),
-    .i_data_im (i_data_im),
-    .o_valid   (buffered_valid),
-    .o_data_re (buffered_data_re),
-    .o_data_im (buffered_data_im)
-);
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -158,10 +134,11 @@ fft16_shift_r4 #( .NB_DATA(NB_DATA)) u_fft16_shift_r4 (
     `endif
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
+    .i_rst_n    (i_rst_n),
     //---------------------------------------------------------
-    .i_valid    (buffered_valid),
-    .i_data_re  (buffered_data_re),
-    .i_data_im  (buffered_data_im),
+    .i_valid    (i_valid),
+    .i_data_re  (i_data_re),
+    .i_data_im  (i_data_im),
     //---------------------------------------------------------
     .o_data0_re (shift_r4_data0_re),
     .o_data0_im (shift_r4_data0_im),
@@ -217,6 +194,7 @@ fft16_shift_r2 #( .NB_DATA(NB_DATA+2)) u_shift_r2_fft0 (
     `endif
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
+    .i_rst_n    (i_rst_n),
     //---------------------------------------------------------
     .i_valid    (fft4_valid),
     .i_data_re  (fft4_data0_re),
@@ -236,6 +214,7 @@ fft16_shift_r2 #( .NB_DATA(NB_DATA+2)) u_shift_r2_fft1 (
     `endif
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
+    .i_rst_n    (i_rst_n),
     //---------------------------------------------------------
     .i_valid    (fft4_valid),
     .i_data_re  (fft4_data1_re),
@@ -255,6 +234,7 @@ fft16_shift_r2 #( .NB_DATA(NB_DATA+2)) u_shift_r2_fft2 (
     `endif
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
+    .i_rst_n    (i_rst_n),
     //---------------------------------------------------------
     .i_valid    (fft4_valid),
     .i_data_re  (fft4_data2_re),
@@ -274,6 +254,7 @@ fft16_shift_r2 #( .NB_DATA(NB_DATA+2)) u_shift_r2_fft3 (
     `endif
     .i_clk      (i_clk),
     .i_clk_en   (i_clk_en),
+    .i_rst_n    (i_rst_n),
     //---------------------------------------------------------
     .i_valid    (fft4_valid),
     .i_data_re  (fft4_data3_re),
@@ -401,6 +382,10 @@ assign mdc3_shift_d1_im = (i_inverse)? (mdc_ff3_data1_im >>> 4) : mdc_ff3_data1_
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc0_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc0_shift_d0_re),
     .i_data_im(mdc0_shift_d0_im),
     .o_data_re(rnd_mdc0_d0_re),
@@ -409,6 +394,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc0_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc0_shift_d1_re),
     .i_data_im(mdc0_shift_d1_im),
     .o_data_re(rnd_mdc0_d1_re),
@@ -419,6 +408,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc1_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc1_shift_d0_re),
     .i_data_im(mdc1_shift_d0_im),
     .o_data_re(rnd_mdc1_d0_re),
@@ -427,6 +420,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc1_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc1_shift_d1_re),
     .i_data_im(mdc1_shift_d1_im),
     .o_data_re(rnd_mdc1_d1_re),
@@ -437,6 +434,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc2_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc2_shift_d0_re),
     .i_data_im(mdc2_shift_d0_im),
     .o_data_re(rnd_mdc2_d0_re),
@@ -445,6 +446,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc2_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc2_shift_d1_re),
     .i_data_im(mdc2_shift_d1_im),
     .o_data_re(rnd_mdc2_d1_re),
@@ -455,6 +460,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc3_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc3_shift_d0_re),
     .i_data_im(mdc3_shift_d0_im),
     .o_data_re(rnd_mdc3_d0_re),
@@ -463,6 +472,10 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
 ) u_mdc3_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
     .i_data_re(mdc3_shift_d1_re),
     .i_data_im(mdc3_shift_d1_im),
     .o_data_re(rnd_mdc3_d1_re),
@@ -501,5 +514,7 @@ buffer_parallel2serial #( .NB_DATA(NB_DATA)) u_buffer_parallel2serial (
     .o_data_im  (o_data_im),
     .o_valid    (o_valid)
 );
+
+assign o_debug_mid_re = shift_r4_data0_re;
 
 endmodule
