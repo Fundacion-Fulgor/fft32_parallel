@@ -15,6 +15,7 @@ VERILOG_SOURCES += $(SRC_DIR)/ds_switch.v
 VERILOG_SOURCES += $(SRC_DIR)/buffer_parallel2serial.v
 
 VERILOG_SOURCES += $(SRC_DIR)/fft4_radix4.v
+VERILOG_SOURCES += $(SRC_DIR)/fft4_mul.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc_stage1.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc_stage2.v

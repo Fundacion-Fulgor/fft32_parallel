@@ -123,6 +123,40 @@ wire signed [NB_DATA-1:0] rnd_mdc3_d0_im;
 wire signed [NB_DATA-1:0] rnd_mdc3_d1_re;
 wire signed [NB_DATA-1:0] rnd_mdc3_d1_im;
 
+wire signed [NB_DATA-1:0] rnd_ifft0_d0_re;
+wire signed [NB_DATA-1:0] rnd_ifft0_d0_im;
+wire signed [NB_DATA-1:0] rnd_ifft0_d1_re;
+wire signed [NB_DATA-1:0] rnd_ifft0_d1_im;
+wire signed [NB_DATA-1:0] rnd_ifft1_d0_re;
+wire signed [NB_DATA-1:0] rnd_ifft1_d0_im;
+wire signed [NB_DATA-1:0] rnd_ifft1_d1_re;
+wire signed [NB_DATA-1:0] rnd_ifft1_d1_im;
+wire signed [NB_DATA-1:0] rnd_ifft2_d0_re;
+wire signed [NB_DATA-1:0] rnd_ifft2_d0_im;
+wire signed [NB_DATA-1:0] rnd_ifft2_d1_re;
+wire signed [NB_DATA-1:0] rnd_ifft2_d1_im;
+wire signed [NB_DATA-1:0] rnd_ifft3_d0_re;
+wire signed [NB_DATA-1:0] rnd_ifft3_d0_im;
+wire signed [NB_DATA-1:0] rnd_ifft3_d1_re;
+wire signed [NB_DATA-1:0] rnd_ifft3_d1_im;
+
+
+wire signed [NB_DATA-1:0] buffer0_re;
+wire signed [NB_DATA-1:0] buffer0_im;
+wire signed [NB_DATA-1:0] buffer1_re;
+wire signed [NB_DATA-1:0] buffer1_im;
+wire signed [NB_DATA-1:0] buffer2_re;
+wire signed [NB_DATA-1:0] buffer2_im;
+wire signed [NB_DATA-1:0] buffer3_re;
+wire signed [NB_DATA-1:0] buffer3_im;
+wire signed [NB_DATA-1:0] buffer4_re;
+wire signed [NB_DATA-1:0] buffer4_im;
+wire signed [NB_DATA-1:0] buffer5_re;
+wire signed [NB_DATA-1:0] buffer5_im;
+wire signed [NB_DATA-1:0] buffer6_re;
+wire signed [NB_DATA-1:0] buffer6_im;
+wire signed [NB_DATA-1:0] buffer7_re;
+wire signed [NB_DATA-1:0] buffer7_im;
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -404,6 +438,31 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc0_d1_im)
 );
 
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft0_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc0_shift_d0_re),
+    .i_data_im(mdc0_shift_d0_im),
+    .o_data_re(rnd_ifft0_d0_re),
+    .o_data_im(rnd_ifft0_d0_im)
+);
+
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft0_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc0_shift_d1_re),
+    .i_data_im(mdc0_shift_d1_im),
+    .o_data_re(rnd_ifft0_d1_re),
+    .o_data_im(rnd_ifft0_d1_im)
+);
+
+
 //---------------------------------------------------------
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
@@ -428,6 +487,30 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .i_data_im(mdc1_shift_d1_im),
     .o_data_re(rnd_mdc1_d1_re),
     .o_data_im(rnd_mdc1_d1_im)
+);
+
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft1_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc1_shift_d0_re),
+    .i_data_im(mdc1_shift_d0_im),
+    .o_data_re(rnd_ifft1_d0_re),
+    .o_data_im(rnd_ifft1_d0_im)
+);
+
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft1_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc1_shift_d1_re),
+    .i_data_im(mdc1_shift_d1_im),
+    .o_data_re(rnd_ifft1_d1_re),
+    .o_data_im(rnd_ifft1_d1_im)
 );
 
 //---------------------------------------------------------
@@ -456,6 +539,30 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc2_d1_im)
 );
 
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft2_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc2_shift_d0_re),
+    .i_data_im(mdc2_shift_d0_im),
+    .o_data_re(rnd_ifft2_d0_re),
+    .o_data_im(rnd_ifft2_d0_im)
+);
+
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft2_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc2_shift_d1_re),
+    .i_data_im(mdc2_shift_d1_im),
+    .o_data_re(rnd_ifft2_d1_re),
+    .o_data_im(rnd_ifft2_d1_im)
+);
+
 //---------------------------------------------------------
 
 clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-5), .RND_MD(0)
@@ -482,7 +589,48 @@ clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-2), .NB_OUT(NB_DATA), .NBF_OUT
     .o_data_im(rnd_mdc3_d1_im)
 );
 
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft3_clip_round_d0 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc3_shift_d0_re),
+    .i_data_im(mdc3_shift_d0_im),
+    .o_data_re(rnd_ifft3_d0_re),
+    .o_data_im(rnd_ifft3_d0_im)
+);
+
+clip_round#( .NB_INP(NB_DATA+4), .NBF_INP(NB_DATA-1), .NB_OUT(NB_DATA), .NBF_OUT(NB_DATA-2), .RND_MD(0)
+) u_ifft3_clip_round_d1 (
+    `ifdef USE_POWER_PINS
+    .VPWR       (VPWR),
+    .VGND       (VGND),
+    `endif
+    .i_data_re(mdc3_shift_d1_re),
+    .i_data_im(mdc3_shift_d1_im),
+    .o_data_re(rnd_ifft3_d1_re),
+    .o_data_im(rnd_ifft3_d1_im)
+);
+
 ////////////////////////////////////////////////////////////////////////////////////////////
+
+assign buffer0_re = (i_inverse)? rnd_ifft0_d0_re : rnd_mdc0_d0_re;
+assign buffer0_im = (i_inverse)? rnd_ifft0_d0_im : rnd_mdc0_d0_im;
+assign buffer1_re = (i_inverse)? rnd_ifft0_d1_re : rnd_mdc0_d1_re;
+assign buffer1_im = (i_inverse)? rnd_ifft0_d1_im : rnd_mdc0_d1_im;
+assign buffer2_re = (i_inverse)? rnd_ifft1_d0_re : rnd_mdc1_d0_re;
+assign buffer2_im = (i_inverse)? rnd_ifft1_d0_im : rnd_mdc1_d0_im;
+assign buffer3_re = (i_inverse)? rnd_ifft1_d1_re : rnd_mdc1_d1_re;
+assign buffer3_im = (i_inverse)? rnd_ifft1_d1_im : rnd_mdc1_d1_im;
+assign buffer4_re = (i_inverse)? rnd_ifft2_d0_re : rnd_mdc2_d0_re;
+assign buffer4_im = (i_inverse)? rnd_ifft2_d0_im : rnd_mdc2_d0_im;
+assign buffer5_re = (i_inverse)? rnd_ifft2_d1_re : rnd_mdc2_d1_re;
+assign buffer5_im = (i_inverse)? rnd_ifft2_d1_im : rnd_mdc2_d1_im;
+assign buffer6_re = (i_inverse)? rnd_ifft3_d0_re : rnd_mdc3_d0_re;
+assign buffer6_im = (i_inverse)? rnd_ifft3_d0_im : rnd_mdc3_d0_im;
+assign buffer7_re = (i_inverse)? rnd_ifft3_d1_re : rnd_mdc3_d1_re;
+assign buffer7_im = (i_inverse)? rnd_ifft3_d1_im : rnd_mdc3_d1_im;
 
 buffer_parallel2serial #( .NB_DATA(NB_DATA)) u_buffer_parallel2serial (
     `ifdef USE_POWER_PINS
@@ -494,22 +642,22 @@ buffer_parallel2serial #( .NB_DATA(NB_DATA)) u_buffer_parallel2serial (
     .i_clk_en   (i_clk_en),
     .i_valid    (mdc_ffx_valid),
     .i_tx_ready (i_tx_ready),
-    .i_data0_re (rnd_mdc0_d0_re),
-    .i_data0_im (rnd_mdc0_d0_im),
-    .i_data1_re (rnd_mdc0_d1_re),
-    .i_data1_im (rnd_mdc0_d1_im),
-    .i_data2_re (rnd_mdc1_d0_re),
-    .i_data2_im (rnd_mdc1_d0_im),
-    .i_data3_re (rnd_mdc1_d1_re),
-    .i_data3_im (rnd_mdc1_d1_im),
-    .i_data4_re (rnd_mdc2_d0_re),
-    .i_data4_im (rnd_mdc2_d0_im),
-    .i_data5_re (rnd_mdc2_d1_re),
-    .i_data5_im (rnd_mdc2_d1_im),
-    .i_data6_re (rnd_mdc3_d0_re),
-    .i_data6_im (rnd_mdc3_d0_im),
-    .i_data7_re (rnd_mdc3_d1_re),
-    .i_data7_im (rnd_mdc3_d1_im),
+    .i_data0_re (buffer0_re),
+    .i_data0_im (buffer0_im),
+    .i_data1_re (buffer1_re),
+    .i_data1_im (buffer1_im),
+    .i_data2_re (buffer2_re),
+    .i_data2_im (buffer2_im),
+    .i_data3_re (buffer3_re),
+    .i_data3_im (buffer3_im),
+    .i_data4_re (buffer4_re),
+    .i_data4_im (buffer4_im),
+    .i_data5_re (buffer5_re),
+    .i_data5_im (buffer5_im),
+    .i_data6_re (buffer6_re),
+    .i_data6_im (buffer6_im),
+    .i_data7_re (buffer7_re),
+    .i_data7_im (buffer7_im),
     .o_data_re  (o_data_re),
     .o_data_im  (o_data_im),
     .o_valid    (o_valid)

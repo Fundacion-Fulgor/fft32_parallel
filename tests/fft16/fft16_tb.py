@@ -88,7 +88,7 @@ async def capture_mdc(dut, N, NBF_STAGE1, NBF_STAGE2, mdc_results, stage2_result
         f"MDC capture timeout: got {len(mdc_results)} of {N} samples."
 
 
-async def tx_serializer_model(dut, NB_DATA, collected, expected_count, timeout=50000):
+async def tx_serializer_model(dut, NB_DATA, collected, expected_count, timeout=50000, nbf=3):
     """
     Emulates tx_serializer handshake:
     - When o_valid=1 and i_tx_ready=1, capture the sample and pull i_tx_ready low
@@ -102,8 +102,8 @@ async def tx_serializer_model(dut, NB_DATA, collected, expected_count, timeout=5
         await RisingEdge(dut.i_clk)
         cycles += 1
         if dut.o_valid.value == 1 and dut.i_tx_ready.value == 1:
-            re = int_to_float(dut.o_data_re.value.to_signed(), 3)
-            im = int_to_float(dut.o_data_im.value.to_signed(), 3)
+            re = int_to_float(dut.o_data_re.value.to_signed(), nbf)
+            im = int_to_float(dut.o_data_im.value.to_signed(), nbf)
             collected.append(complex(re, im))
             dut.i_tx_ready.value = 0
             for _ in range(BUSY_CYCLES):
@@ -135,18 +135,19 @@ def reorder(seq, n, mapping):
 @cocotb.test()
 async def test_fft16_stage1(dut):
 
+    INVERSE    = 0
     NB_DATA    = 8
-    NBF_DATA   = 6
+    NBF_DATA   = 6 if INVERSE == 0 else 3
     N          = 16
-    NBF_STAGE1 = 6
-    NBF_STAGE2 = 3
+    NBF_STAGE1 = 6 if INVERSE == 0 else 3
+    NBF_STAGE2 = 3 if INVERSE == 0 else 6
 
     fft_model = FFT16(
         N=N,
         fxp=1,
         NB_INPUT=NB_DATA,
         NBF_INPUT=NBF_DATA,
-        fft_mode=1
+        fft_mode= 1 if INVERSE == 0 else 0
     )
 
     clock = Clock(dut.i_clk, 10, unit="ns")
@@ -154,7 +155,7 @@ async def test_fft16_stage1(dut):
 
     dut.i_clk_en.value   = 0
     dut.i_rst_n.value    = 0
-    dut.i_inverse.value  = 0
+    dut.i_inverse.value  = INVERSE
     dut.i_valid.value    = 0
     dut.i_tx_ready.value = 1
     dut.i_data_re.value  = 0
@@ -197,7 +198,7 @@ async def test_fft16_stage1(dut):
         capture_mdc(dut, N, NBF_STAGE1, NBF_STAGE2, rtl_mdc, rtl_stage2))
 
     task_buffer = cocotb.start_soon(
-        tx_serializer_model(dut, NB_DATA, collected_buffer, N))
+        tx_serializer_model(dut, NB_DATA, collected_buffer, N, nbf=NBF_STAGE2))
 
     # =====================================================
     # Gapped injection: 1 valid cycle, 15 idle cycles
