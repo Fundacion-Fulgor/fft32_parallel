@@ -22,12 +22,10 @@ def int_to_float(val, int_bits, frac_bits):
 @cocotb.test()
 async def test_fft4_radix4(dut):
     
-    NB_INPUT = 8
-    NBF_INPUT = 6
     N = 16
     
-
-    fft_model = FFT4_Reference(NB_INPUT=NB_INPUT, NBF_INPUT=NBF_INPUT, inverse=0)
+    model_fft  = FFT4_Reference(NB_INPUT=8, NBF_INPUT=6, inverse=False)
+    model_ifft = FFT4_Reference(NB_INPUT=8, NBF_INPUT=3, inverse=True)
 
     clock = Clock(dut.i_clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
@@ -50,12 +48,20 @@ async def test_fft4_radix4(dut):
     
     num_tests = 100
     for k in range(num_tests):
-        cocotb.log.info(f"--- Test {k} ---")
         
-        input_float = 2 * np.random.uniform(-1, 1, N) + 2j * np.random.uniform(-1, 1, N)
-        input_q = [fft_model.round.crnd(x, True, NB_INPUT, NBF_INPUT, 'around') for x in input_float]
+        
+        is_inverse = (k % 2 != 0)
+        dut.i_inverse.value = 1 if is_inverse else 0
+        model = model_ifft if is_inverse else model_fft
+        mode_str = "IFFT" if is_inverse else "FFT "
+        NBF_INPUT = 3 if is_inverse else 6
+        cocotb.log.info(f"--- Test {k} - Mode {mode_str} ---")
 
-        expected_output = fft_model.process(input_q)
+
+        input_float = 2 * np.random.uniform(-1, 1, N) + 2j * np.random.uniform(-1, 1, N)
+        input_q = [model.round.crnd(x, True, 8, NBF_INPUT, 'around') for x in input_float]
+
+        expected_output = model.process(input_q)
         
         for m in range(4):
             d0 = input_q[m]
@@ -89,8 +95,8 @@ async def test_fft4_radix4(dut):
                 
 
         while dut.o_valid.value == 1 and m_out < 4:
-            nbf_out_rtl = NB_INPUT - 2 
-            int_bits_out = (NB_INPUT+2) - nbf_out_rtl - 1
+            nbf_out_rtl = NBF_INPUT
+            int_bits_out = 10 - nbf_out_rtl - 1
             
             o0_re = int_to_float(dut.o_data0_re.value.to_signed(), int_bits_out, nbf_out_rtl)
             o0_im = int_to_float(dut.o_data0_im.value.to_signed(), int_bits_out, nbf_out_rtl)

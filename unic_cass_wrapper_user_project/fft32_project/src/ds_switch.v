@@ -1,7 +1,5 @@
 module ds_switch #(
-    parameter NB = 8,
-    parameter N  = 4,
-    parameter L  = 2
+    parameter NB = 8
 ) (
     `ifdef USE_POWER_PINS
     inout               VPWR,  // Common digital supply
@@ -22,171 +20,82 @@ module ds_switch #(
     output [NB - 1 : 0] o_data_1i
 );
 
-  ////////////////////////////////////////////////////////////
-  // WIRE AND REGISTER
-  ////////////////////////////////////////////////////////////
-  localparam STATE_OFF = 1'b0;
-  localparam STATE_ON = 1'b1;
-  reg               current_state;
-  reg               next_state;
-  reg               r_sel;
-  reg  [ L - 1 : 0] flag;
-  wire [L-1:0] Lm1 = (L-1);
-  //-----FSM_VALID-------------------------------
-  reg               valid_cstate;
-  reg               valid_nstate;
-  reg  [ N - 1 : 0] valid_count;
-  reg               valid;
-  //---------------------------------------------
-  reg  [NB - 1 : 0] r_idata_r     [L - 1 : 0];
-  reg  [NB - 1 : 0] r_idata_i     [L - 1 : 0];
-  reg  [NB - 1 : 0] r_odata_r     [L - 1 : 0];
-  reg  [NB - 1 : 0] r_odata_i     [L - 1 : 0];
-  //---------------------------------------------
-  wire              w_sel;
-  wire [NB - 1 : 0] w_data_1r;
-  wire [NB - 1 : 0] w_data_1i;
-  wire [NB - 1 : 0] w_data_2r;
-  wire [NB - 1 : 0] w_data_2i;
+////////////////////////////////////////////////////////////
+// WIRE AND REGISTER
+////////////////////////////////////////////////////////////
+
+reg  [NB-1:0] mem_0r;
+reg  [NB-1:0] mem_0i;
+reg  [NB-1:0] mem_1r;
+reg  [NB-1:0] mem_1i;
+reg  [NB-1:0] mem_2r;
+reg  [NB-1:0] mem_2i;
+reg  [NB-1:0] mem_3r;
+reg  [NB-1:0] mem_3i;
+//---------------------------------------------
+reg  [NB-1:0] r_data_0r;
+reg  [NB-1:0] r_data_0i;
+reg  [NB-1:0] r_data_1r;
+reg  [NB-1:0] r_data_1i;
+//---------------------------------------------
+reg           r_valid;
+reg  [2-1:0]  count;
+reg           transmitting;
 
 
-  ////////////////////////////////////////////////////////////
-  // FSM - SEL
-  ////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////
+// CL && REG
+////////////////////////////////////////////////////////////
 
-  /* verilator lint_off SYNCASYNCNET */
-  always @(posedge i_clk or negedge i_rst_n) begin
-    if (!i_rst_n) begin
-      flag <= {L{1'b0}};
-      current_state <= STATE_OFF;
+always @(posedge i_clk) begin  
+  if (!i_rst_n) begin
+    count <= 2'd0;
+    transmitting <= 1'b0;
+    r_valid <= 1'b0;
+  end else begin
+    if (i_valid) begin
+        if (count == 2'd0) begin
+            mem_0r <= i_data_0r;
+            mem_0i <= i_data_0i;
+            mem_2r <= i_data_1r;
+            mem_2i <= i_data_1i;
+            count <= 2'd1;
+        end else if (count == 2'd1) begin
+            mem_1r <= i_data_0r;
+            mem_1i <= i_data_0i;
+            mem_3r <= i_data_1r;
+            mem_3i <= i_data_1i;
+            count <= 2'd0;
+            transmitting <= 1'b1;
+        end
+    end
+
+    if (transmitting) begin
+        if (count == 2'd0) begin
+          r_data_0r <= mem_0r; r_data_0i <= mem_0i;
+          r_data_1r <= mem_1r; r_data_1i <= mem_1i;
+          r_valid   <= 1'b1;
+          count <= count + 2'd1;
+        end else begin
+          r_data_0r <= mem_2r; r_data_0i <= mem_2i;
+          r_data_1r <= mem_3r; r_data_1i <= mem_3i;
+          r_valid   <= 1'b1;
+          count <= count + 2'd1;
+          transmitting <= 1'b0;
+        end
     end else begin
-      current_state <= next_state;
-      case (current_state)
-        STATE_OFF: begin
-          if (i_valid) begin
-            /* verilator lint_off UNSIGNED */
-            if (flag < Lm1) flag <= flag + 1'b1;
-            /* verilator lint_on UNSIGNED */
-            else flag <= {L{1'b0}};
-          end else flag <= {L{1'b0}};
-        end
-        STATE_ON: begin
-          /* verilator lint_off UNSIGNED */
-          if (flag < Lm1) flag <= flag + 1'b1;
-          /* verilator lint_on UNSIGNED */
-          else flag <= {L{1'b0}};
-        end
-        default: begin
-          flag <= {L{1'b0}};
-        end
-      endcase
+      r_valid   <= 1'b0;
+      if (count == 2'd3) begin
+        count <= 2'd0;
+      end
     end
   end
-  /* verilator lint_on SYNCASYNCNET */
+end
 
-  always @(*) begin
-    case (current_state)
-      STATE_OFF: begin
-        r_sel = 1'b0;
-        if ((flag == Lm1) && i_valid) next_state = STATE_ON;
-        else next_state = STATE_OFF;
-      end
-      STATE_ON: begin
-        r_sel = 1'b1;
-        if (flag == Lm1) next_state = STATE_OFF;
-        else next_state = STATE_ON;
-      end
-      default: begin
-        r_sel = 1'b0;
-        next_state = STATE_OFF;
-      end
-    endcase
-  end
-
-  assign w_sel = r_sel;
-
-  ////////////////////////////////////////////////////////////
-  // FSM - VALID
-  ////////////////////////////////////////////////////////////
-
-  /* verilator lint_off SYNCASYNCNET */
-  always @(posedge i_clk or negedge i_rst_n) begin
-    if (!i_rst_n) begin
-      valid_count  <= {N{1'b0}};
-      valid_cstate <= STATE_OFF;
-    end else begin
-      valid_cstate <= valid_nstate;
-      case (valid_cstate)
-        STATE_OFF: begin
-          valid_count <= {N{1'b0}};
-        end
-        STATE_ON: begin
-          if (valid_count < (N - 1)) valid_count <= valid_count + {{N - 1{1'b0}}, 1'b1};
-          else valid_count <= {N{1'b0}};
-        end
-        default: begin
-          valid_count <= {N{1'b0}};
-        end
-      endcase
-    end
-  end
-  /* verilator lint_on SYNCASYNCNET */
-
-  always @(*) begin
-    case (valid_cstate)
-      STATE_OFF: begin
-        valid = 1'b0;
-        if ((flag == Lm1) && i_valid) valid_nstate = STATE_ON;
-        else valid_nstate = STATE_OFF;
-      end
-      STATE_ON: begin
-        valid = 1'b1;
-        if ((valid_count < (N - 1))) valid_nstate = STATE_ON;
-        else begin
-          if (i_valid) valid_nstate = STATE_ON;
-          else valid_nstate = STATE_OFF;
-        end
-      end
-      default: begin
-        valid = 1'b0;
-        valid_nstate = STATE_OFF;
-      end
-    endcase
-  end
-
-  assign o_valid = valid;
-  ////////////////////////////////////////////////////////////
-  // CL && REG
-  ////////////////////////////////////////////////////////////
-
-  integer ptr;
-  always @(posedge i_clk) begin
-    for (ptr = 0; ptr < L; ptr = ptr + 1) begin
-      if (ptr == 0) begin
-        r_idata_r[ptr] <= i_data_1r;
-        r_idata_i[ptr] <= i_data_1i;
-        r_odata_r[ptr] <= w_data_1r;
-        r_odata_i[ptr] <= w_data_1i;
-      end else begin
-        r_idata_r[ptr] <= r_idata_r[ptr-1];
-        r_idata_i[ptr] <= r_idata_i[ptr-1];
-        r_odata_r[ptr] <= r_odata_r[ptr-1];
-        r_odata_i[ptr] <= r_odata_i[ptr-1];
-      end
-      // r_idata_r[i+1]
-    end
-  end
-
-  assign w_data_1r = (w_sel) ? r_idata_r[L-1] : i_data_0r;
-  assign w_data_1i = (w_sel) ? r_idata_i[L-1] : i_data_0i;
-  assign w_data_2r = (w_sel) ? i_data_0r : r_idata_r[L-1];
-  assign w_data_2i = (w_sel) ? i_data_0i : r_idata_i[L-1];
-
-
-  assign o_data_0r = r_odata_r[L-1];
-  assign o_data_0i = r_odata_i[L-1];
-  assign o_data_1r = w_data_2r;
-  assign o_data_1i = w_data_2i;
-
+assign o_data_0r = r_data_0r;
+assign o_data_0i = r_data_0i;
+assign o_data_1r = r_data_1r;
+assign o_data_1i = r_data_1i;
+assign o_valid = r_valid;
 
 endmodule

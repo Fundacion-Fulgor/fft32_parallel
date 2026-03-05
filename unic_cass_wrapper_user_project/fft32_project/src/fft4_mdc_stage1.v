@@ -26,10 +26,8 @@ module fft4_mdc_stage1 #(
 // WIRE AND REGISTER
 //////////////////////////////////////////////////////////////////////////////////
 
-localparam N_DATA = 2;
-localparam L_STAGE = 1;
-
 reg                        r_count;
+reg                        last_valid;
 //--- -------------------------------------------
 reg signed  [NB_INPUT-1:0] r_data0_r;
 reg signed  [NB_INPUT-1:0] r_data0_i;
@@ -60,7 +58,7 @@ always @(posedge i_clk or negedge i_rst_n) begin
     if (r_data_valid) begin
       r_count <= ~r_count;
     end else begin
-      r_count <= 1'b0;
+      r_count <= r_count;
     end
   end
 end
@@ -70,11 +68,13 @@ end
 //////////////////////////////////////////////////////////////////////////////////
 
 always @(posedge i_clk) begin
-  r_data0_r    <= i_data1_r;
-  r_data0_i    <= i_data1_i;
-  r_data1_r    <= i_data2_r;
-  r_data1_i    <= i_data2_i;
   r_data_valid <= i_valid;
+  if (i_valid) begin
+    r_data0_r    <= i_data1_r;
+    r_data0_i    <= i_data1_i;
+    r_data1_r    <= i_data2_r;
+    r_data1_i    <= i_data2_i;
+  end
 end
 
 //-------------------------------------------------------
@@ -107,9 +107,7 @@ assign w_ds1_i = (r_count == 1'b1) ? w_pre_ds1_i : w_bt1_i;
 //-------------------------------------------------------
 
 ds_switch #(
-    .NB(NB_INPUT+1),
-    .N (N_DATA),
-    .L (L_STAGE)
+    .NB(NB_INPUT+1)
 ) ds_switch_stage1 (
     `ifdef USE_POWER_PINS
     .VPWR       (VPWR),

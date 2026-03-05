@@ -45,7 +45,7 @@ module spi_slave_mode0 #(
   // including the current mosi bit BEFORE the register is updated
   wire [FRAME_BITS-1:0] next_rx = {rx_shift[FRAME_BITS-2:0], mosi};
 
-  assign miso = (!ss_n) ? tx_shift[FRAME_BITS-1] : 1'bz;
+  assign miso = (!ss_n) ? tx_shift[FRAME_BITS-1] : 1'b0;
 
   // ==========================================================================
   // RX — clocked on posedge sclk

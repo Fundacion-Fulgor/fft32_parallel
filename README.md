@@ -1,5 +1,7 @@
 [![Librelane Digital Flow (UNIC-CASS)](https://github.com/unic-cass/unic-cass-wrapper/actions/workflows/digital-flow.yaml/badge.svg?branch=dev&event=push)](https://github.com/unic-cass/unic-cass-wrapper/actions/workflows/digital-flow.yaml)
 
+[![RTL Verification (Cocotb)](https://github.com/TU_USUARIO/TU_REPO/actions/workflows/rtl-tests.yml/badge.svg)](https://github.com/Fundacion-Fulgor/fft32_parallel/actions/workflows/rtl-tests.yml)
+
 # 32-point Parallel FFT using MDC-8 Architecture (FFT32_PAR, UNIC-CASS 2025)
 
 ## Project Overview

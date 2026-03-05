@@ -1,30 +1,40 @@
 import cocotb
+import numpy as np
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
-import random
-import numpy as np
 
-CLK_NS      = 20
+CLK_NS = 20
 SPI_HALF_NS = 50
-NB_DATA     = 8
-N           = 16
-TIMEOUT     = 2000
+NB_DATA = 8
+N = 16
+TIMEOUT = 2000
 
 SPI_RW_WRITE = 0
-SPI_RW_READ  = 1
+SPI_RW_READ = 1
 
 ADDR_STATUS_FLAGS = 0x00
-ADDR_ERROR_FLAGS  = 0x01
-ADDR_CNT_INPUTS   = 0x02
-ADDR_CNT_OUTPUTS  = 0x03
-ADDR_LAST_OUT_RE  = 0x04
-ADDR_LAST_OUT_IM  = 0x05
-ADDR_MID_DATA_RE  = 0x06
-ADDR_SYS_CONFIG   = 0x10
+ADDR_ERROR_FLAGS = 0x01
+ADDR_CNT_INPUTS = 0x02
+ADDR_CNT_OUTPUTS = 0x03
+ADDR_LAST_OUT_RE = 0x04
+ADDR_LAST_OUT_IM = 0x05
+ADDR_MID_DATA_RE = 0x06
+ADDR_SYS_CONFIG = 0x10
 
 CFG_DISABLE = 0b000
-CFG_ENABLE  = 0b001
-CFG_SRESET  = 0b100
+CFG_ENABLE = 0b001  # fft_enable=1, inverse=0
+CFG_ENABLE_IFFT = 0b011  # fft_enable=1, inverse=1  (bit1 = i_inverse)
+CFG_SRESET = 0b100
+
+# Cycles to wait after enabling clk_en before injecting real data.
+# fft16_shift_r4 and fft16_shift_r2 have no reset port — they only gate on
+# i_clk_en.  Residual valid pulses drain in at most a few dozen cycles.
+PIPELINE_DRAIN_CYCLES = 64
+
+# Fixed-point formats
+NBF_FFT_IN = 6  # Q(8,6) — FFT  input  / IFFT output
+NBF_FFT_OUT = 3  # Q(8,3) — FFT  output / IFFT input
+MDC_MAP = [0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15]
 
 
 def to_signed_8(val):
@@ -32,9 +42,14 @@ def to_signed_8(val):
     return val - 256 if val > 127 else val
 
 
+# ─────────────────────────────────────────────────────────────────
+# Infrastructure helpers
+# ─────────────────────────────────────────────────────────────────
+
+
 async def reset_dut(dut):
-    dut.i_rst_n.value    = 0
-    dut.i_data.value     = 0
+    dut.i_rst_n.value = 0
+    dut.i_data.value = 0
     dut.i_spi_ss_n.value = 1
     dut.i_spi_sclk.value = 0
     dut.i_spi_mosi.value = 0
@@ -42,6 +57,37 @@ async def reset_dut(dut):
         await RisingEdge(dut.i_clk)
     dut.i_rst_n.value = 1
     await RisingEdge(dut.i_clk)
+
+
+async def full_reset(dut):
+    await reset_dut(dut)
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_SRESET)
+    for _ in range(8):
+        await RisingEdge(dut.i_clk)
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_DISABLE)
+    for _ in range(4):
+        await RisingEdge(dut.i_clk)
+
+
+async def enable_fft_and_drain(dut):
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
+    for _ in range(PIPELINE_DRAIN_CYCLES):
+        await RisingEdge(dut.i_clk)
+
+
+async def enable_ifft_and_drain(dut):
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE_IFFT)
+    for _ in range(PIPELINE_DRAIN_CYCLES):
+        await RisingEdge(dut.i_clk)
+
+
+async def soft_reset_between_blocks(dut, cfg_enable=CFG_ENABLE):
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_SRESET)
+    for _ in range(8):
+        await RisingEdge(dut.i_clk)
+    await spi_write(dut, ADDR_SYS_CONFIG, cfg_enable)
+    for _ in range(PIPELINE_DRAIN_CYCLES):
+        await RisingEdge(dut.i_clk)
 
 
 async def spi_transfer(dut, rw, addr, wdata=0x00):
@@ -76,10 +122,6 @@ async def spi_read(dut, addr):
 
 
 async def drive_stream(dut, pairs):
-    """
-    Sends a full batch of N samples to the rx_serializer.
-    One idle cycle + start bit, then all N*16 bits continuously.
-    """
     dut.i_data.value = 0
     await RisingEdge(dut.i_clk)
     dut.i_data.value = 1
@@ -93,11 +135,6 @@ async def drive_stream(dut, pairs):
 
 
 async def capture_block(dut, n_samples):
-    """
-    Captures n_samples from the tx_serializer serial output.
-    First sample: wait for start bit (first HIGH), then capture 16 bits.
-    Subsequent samples: 2 extra awaits for the TX pipeline gap.
-    """
     results = []
     for idx in range(n_samples):
         if idx == 0:
@@ -110,9 +147,8 @@ async def capture_block(dut, n_samples):
             else:
                 assert False, "Timeout: start bit never detected on o_data"
         else:
-            # Exactamente 2 ciclos de espera, igual que en tu test del buffer_tx
             await RisingEdge(dut.i_clk)
-            await RisingEdge(dut.i_clk)  
+            await RisingEdge(dut.i_clk)
 
         word = 0
         for _ in range(16):
@@ -124,311 +160,62 @@ async def capture_block(dut, n_samples):
     return results
 
 
-# ---------------------------------------------------------------------------
-# Test 1: FFT disabled — no output, cnt_inputs counts, cnt_outputs stays 0
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────
+# Shared roundtrip helper
+# ─────────────────────────────────────────────────────────────────
 
-@cocotb.test()
-async def test_fft_disabled_no_output(dut):
+
+async def run_roundtrip(dut, inverse, seed=42):
     """
-    After reset sys_config=0b000 so fft_enable=0.
-    rx_serializer still receives and cnt_inputs counts.
-    fft16 with i_clk_en=0 does not process: o_data stays 0, cnt_outputs=0.
+    Drives one block through the FFT or IFFT, captures the output and
+    compares it against the FFT16 Python fixed-point model.
+
+    inverse=0: FFT  — input Q(8,6), output Q(8,3)
+    inverse=1: IFFT — input Q(8,3), output Q(8,6)
     """
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_fft_disabled_no_output ---")
-
-    samples = [(i * 3, i * 2) for i in range(N)]
-    await drive_stream(dut, samples)
-
-    for _ in range(200):
-        await RisingEdge(dut.i_clk)
-        assert int(dut.o_data.value) == 0, \
-            "o_data must remain 0 when FFT is disabled"
-
-    cocotb.log.info("  o_data stayed 0 with FFT disabled  OK")
-
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-
-    cnt_in  = await spi_read(dut, ADDR_CNT_INPUTS)
-    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
-    assert cnt_in == N,  f"cnt_inputs: expected {N}, got {cnt_in}"
-    assert cnt_out == 0, f"cnt_outputs: expected 0, got {cnt_out}"
-    cocotb.log.info(f"  cnt_inputs={cnt_in}  cnt_outputs={cnt_out}  OK")
-    cocotb.log.info("test_fft_disabled_no_output PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 2: Enable FFT, verify counters and status_flags via SPI
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_enable_counters_and_status(dut):
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_enable_counters_and_status ---")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-    cocotb.log.info("  FFT enabled via SPI  OK")
-
-    samples  = [(10 * (i % 4 + 1), -5 * (i % 4 + 1)) for i in range(N)]
-    send_task = cocotb.start_soon(drive_stream(dut, samples))
-    received  = await capture_block(dut, N)
-    await send_task
-
-    cocotb.log.info(f"  Captured {len(received)} output samples")
-
-    non_zero = [(re, im) for re, im in received if re != 0 or im != 0]
-    assert len(non_zero) > 0, \
-        "All output samples are (0,0) — FFT output not reaching serial output"
-    cocotb.log.info(f"  {len(non_zero)}/{N} non-zero output samples  OK")
-
-    for _ in range(20):
-        await RisingEdge(dut.i_clk)
-
-    cnt_in  = await spi_read(dut, ADDR_CNT_INPUTS)
-    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
-    assert cnt_in == N,  f"cnt_inputs: expected {N}, got {cnt_in}"
-    assert cnt_out == N, f"cnt_outputs: expected {N}, got {cnt_out}"
-    cocotb.log.info(f"  cnt_inputs={cnt_in}  cnt_outputs={cnt_out}  OK")
-
-    status = await spi_read(dut, ADDR_STATUS_FLAGS)
-    assert (status >> 2) & 1 == 1, \
-        f"tx_ready should be 1 when idle, status=0x{status:02X}"
-    assert (status >> 3) & 1 == 0, \
-        f"fft_inverse should be 0, status=0x{status:02X}"
-    cocotb.log.info(f"  status_flags=0x{status:02X}  OK")
-
-    last_re_raw = await spi_read(dut, ADDR_LAST_OUT_RE)
-    last_im_raw = await spi_read(dut, ADDR_LAST_OUT_IM)
-    last_re = to_signed_8(last_re_raw)
-    last_im = to_signed_8(last_im_raw)
-    exp_re, exp_im = received[-1]
-    assert last_re == exp_re, f"last_out_re: expected {exp_re}, got {last_re}"
-    assert last_im == exp_im, f"last_out_im: expected {exp_im}, got {last_im}"
-    cocotb.log.info(f"  last_out: re={last_re} im={last_im}  OK")
-    cocotb.log.info("test_enable_counters_and_status PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Zero input
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_zero_input(dut):
-    """FFT of all-zero input is all-zero. Verifies no clipping flagged."""
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_zero_input ---")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-
-    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
-    received  = await capture_block(dut, N)
-    await send_task
-
-    for i, (re, im) in enumerate(received):
-        assert re == 0 and im == 0, \
-            f"Sample {i}: expected (0,0), got ({re},{im})"
-    cocotb.log.info(f"  All {N} output samples are (0,0)  OK")
-
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-    err = await spi_read(dut, ADDR_ERROR_FLAGS)
-    assert (err & 0x01) == 0, \
-        f"error_flags[0] should be 0 for zero input, got 0x{err:02X}"
-    cocotb.log.info(f"  error_flags=0x{err:02X} (no clipping)  OK")
-    cocotb.log.info("test_zero_input PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 4: Soft reset clears counters
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_soft_reset(dut):
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_soft_reset ---")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-
-    send_task = cocotb.start_soon(drive_stream(dut, [(i+1, -(i+1)) for i in range(N)]))
-    await capture_block(dut, N)
-    await send_task
-
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-
-    cnt_in  = await spi_read(dut, ADDR_CNT_INPUTS)
-    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
-    assert cnt_in == N,  f"Pre-reset cnt_inputs: expected {N}, got {cnt_in}"
-    assert cnt_out == N, f"Pre-reset cnt_outputs: expected {N}, got {cnt_out}"
-    cocotb.log.info(f"  Pre-reset: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_SRESET)
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-
-    cnt_in  = await spi_read(dut, ADDR_CNT_INPUTS)
-    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
-    assert cnt_in == 0,  f"Post-reset cnt_inputs: expected 0, got {cnt_in}"
-    assert cnt_out == 0, f"Post-reset cnt_outputs: expected 0, got {cnt_out}"
-    cocotb.log.info(f"  Post-reset: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
-
-    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
-    received  = await capture_block(dut, N)
-    await send_task
-    assert len(received) == N, \
-        f"Post-reset block: expected {N} samples, got {len(received)}"
-    cocotb.log.info(f"  Post-reset block: {N} outputs received  OK")
-    cocotb.log.info("test_soft_reset PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 5: SPI last_out tracking across two blocks
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_spi_last_out_tracking(dut):
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_spi_last_out_tracking ---")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-
-    for block_idx in range(2):
-        samples = [
-            ((block_idx + 1) * (i % 8 + 1), -(block_idx + 1) * (i % 8 + 1))
-            for i in range(N)
-        ]
-        send_task = cocotb.start_soon(drive_stream(dut, samples))
-        received  = await capture_block(dut, N)
-        await send_task
-
-        for _ in range(20):
-            await RisingEdge(dut.i_clk)
-
-        non_zero = [(re, im) for re, im in received if re != 0 or im != 0]
-        assert len(non_zero) > 0, f"Block {block_idx}: all outputs are (0,0)"
-        cocotb.log.info(f"  Block {block_idx}: {len(non_zero)}/{N} non-zero samples  OK")
-
-        last_re_raw = await spi_read(dut, ADDR_LAST_OUT_RE)
-        last_im_raw = await spi_read(dut, ADDR_LAST_OUT_IM)
-        last_re = to_signed_8(last_re_raw)
-        last_im = to_signed_8(last_im_raw)
-        exp_re, exp_im = received[-1]
-        assert last_re == exp_re, \
-            f"Block {block_idx} last_out_re: expected {exp_re}, got {last_re}"
-        assert last_im == exp_im, \
-            f"Block {block_idx} last_out_im: expected {exp_im}, got {last_im}"
-        cocotb.log.info(f"  Block {block_idx} last_out: re={last_re} im={last_im}  OK")
-
-    cnt_in  = await spi_read(dut, ADDR_CNT_INPUTS)
-    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
-    assert cnt_in  == 2 * N, f"cnt_inputs: expected {2*N}, got {cnt_in}"
-    assert cnt_out == 2 * N, f"cnt_outputs: expected {2*N}, got {cnt_out}"
-    cocotb.log.info(f"  Accumulated: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
-    cocotb.log.info("test_spi_last_out_tracking PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 6: DC input — energy concentrated at bin 0
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_dc_input_energy(dut):
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_dc_input_energy ---")
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
-
-    A = 4
-    send_task = cocotb.start_soon(drive_stream(dut, [(A, 0)] * N))
-    received  = await capture_block(dut, N)
-    await send_task
-
-    non_zero = [(i, re, im) for i, (re, im) in enumerate(received)
-                if re != 0 or im != 0]
-    cocotb.log.info(f"  Non-zero outputs: {non_zero}")
-
-    assert len(non_zero) == 1, \
-        f"DC input should produce exactly 1 non-zero bin, got {len(non_zero)}: {non_zero}"
-
-    bin0_phys, bin0_re, bin0_im = non_zero[0]
-    cocotb.log.info(f"  Bin 0 at physical index {bin0_phys}: re={bin0_re} im={bin0_im}  OK")
-
-    for _ in range(10):
-        await RisingEdge(dut.i_clk)
-    err = await spi_read(dut, ADDR_ERROR_FLAGS)
-    assert (err & 0x01) == 0, \
-        f"No clipping expected for DC A={A}, error_flags=0x{err:02X}"
-    cocotb.log.info(f"  error_flags=0x{err:02X} (no clipping)  OK")
-    cocotb.log.info("test_dc_input_energy PASSED.")
-
-
-# ---------------------------------------------------------------------------
-# Test 7: Mathematical roundtrip — FFT16 model vs serial output
-# ---------------------------------------------------------------------------
-
-@cocotb.test()
-async def test_fft_mathematical_roundtrip(dut):
-    """
-    Full end-to-end verification against the FFT16 Python model.
-    Input:  Q(8,6), sent as int8 via serial.
-    Output: Q(8,3), captured from serial and compared against model.
-    MDC_MAP maps physical serial output index to frequency bin.
-    """
-    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
-    await reset_dut(dut)
-    cocotb.log.info("--- test_fft_mathematical_roundtrip ---")
-
     from fft16 import FFT16
 
-    NBF_DATA = 6
-    NBF_OUT  = 3
-    TOL      = 1e-9
+    if inverse == 0:
+        nbf_in = NBF_FFT_IN
+        nbf_out = NBF_FFT_OUT
+        fft_mode = 1
+        mode_str = "FFT"
+    else:
+        nbf_in = NBF_FFT_OUT  # IFFT input is frequency-domain Q(8,3)
+        nbf_out = NBF_FFT_IN  # IFFT output is time-domain Q(8,6)
+        fft_mode = 0
+        mode_str = "IFFT"
 
-    MDC_MAP = [0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15]
+    fft_model = FFT16(N=N, fxp=1, NB_INPUT=NB_DATA, NBF_INPUT=nbf_in, fft_mode=fft_mode)
 
-    fft_model = FFT16(N=N, fxp=1, NB_INPUT=NB_DATA, NBF_INPUT=NBF_DATA, fft_mode=1)
-
-    np.random.seed(42)
-    input_float = 2 * np.random.uniform(-1, 1, N) + \
-                  2j * np.random.uniform(-1, 1, N)
+    np.random.seed(seed)
+    input_float = 2 * np.random.uniform(-1, 1, N) + 2j * np.random.uniform(-1, 1, N)
 
     input_q = [
-        fft_model.round.crnd(x, True, NB_DATA, NBF_DATA, 'around')
-        for x in input_float
+        fft_model.round.crnd(x, True, NB_DATA, nbf_in, "around") for x in input_float
     ]
 
     _, _, expected_out = fft_model.process(input_q)
 
     def fxp_to_int8(c, nbf):
-        re = max(-128, min(127, int(round(c.real * (2 ** nbf)))))
-        im = max(-128, min(127, int(round(c.imag * (2 ** nbf)))))
+        re = max(-128, min(127, int(round(c.real * (2**nbf)))))
+        im = max(-128, min(127, int(round(c.imag * (2**nbf)))))
         return re, im
 
     def int8_to_float(val, nbf):
-        return val / (2 ** nbf)
+        return val / (2**nbf)
 
-    samples_int = [fxp_to_int8(x, NBF_DATA) for x in input_q]
-
-    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
+    samples_int = [fxp_to_int8(x, nbf_in) for x in input_q]
 
     send_task = cocotb.start_soon(drive_stream(dut, samples_int))
-    received  = await capture_block(dut, N)
+    received = await capture_block(dut, N)
     await send_task
 
-    cocotb.log.info(f"  Captured {len(received)} output samples")
+    cocotb.log.info(f"  Captured {len(received)} {mode_str} output samples")
     cocotb.log.info("\n" + "=" * 90)
-    cocotb.log.info("FFT16 ROUNDTRIP RESULTS")
+    cocotb.log.info(
+        f"{mode_str} ROUNDTRIP RESULTS  (nbf_in={nbf_in} nbf_out={nbf_out})"
+    )
     cocotb.log.info("=" * 90)
     cocotb.log.info(
         f"{'Phys':<6} {'Bin':<5} | "
@@ -438,27 +225,447 @@ async def test_fft_mathematical_roundtrip(dut):
     )
     cocotb.log.info("-" * 90)
 
+    TOL = 1e-9
     all_ok = True
     for phys_idx in range(N):
-        bin_idx        = MDC_MAP[phys_idx]
+        bin_idx = MDC_MAP[phys_idx]
         got_re_int, got_im_int = received[phys_idx]
-        got_re = int8_to_float(got_re_int, NBF_OUT)
-        got_im = int8_to_float(got_im_int, NBF_OUT)
+        got_re = int8_to_float(got_re_int, nbf_out)
+        got_im = int8_to_float(got_im_int, nbf_out)
         exp_re = float(expected_out[bin_idx].real)
         exp_im = float(expected_out[bin_idx].imag)
         diff_re = abs(got_re - exp_re)
         diff_im = abs(got_im - exp_im)
-        match   = diff_re < TOL and diff_im < TOL
+        match = diff_re < TOL and diff_im < TOL
         if not match:
             all_ok = False
         cocotb.log.info(
             f"  [{phys_idx:<3}] bin={bin_idx:<3} | "
-            f"{got_re:+.5f} {got_im:+.5f}j | "
-            f"{exp_re:+.5f} {exp_im:+.5f}j | "
+            f"{got_re:+.6f} {got_im:+.6f}j | "
+            f"{exp_re:+.6f} {exp_im:+.6f}j | "
             f"{diff_re:.2e} {diff_im:.2e} "
             f"{'OK' if match else 'MISMATCH'}"
         )
 
-    assert all_ok, "One or more output samples do not match the FFT16 model"
+    assert all_ok, f"One or more {mode_str} output samples do not match the model"
     cocotb.log.info("=" * 90)
+    return received
+
+
+# ─────────────────────────────────────────────────────────────────
+# FFT Tests
+# ─────────────────────────────────────────────────────────────────
+
+
+@cocotb.test()
+async def test_fft_disabled_no_output(dut):
+    """
+    With sys_config=0b000 (fft_enable=0), rx_serializer still counts inputs
+    but fft16 is gated: o_data stays 0 and cnt_outputs=0.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_fft_disabled_no_output ---")
+
+    samples = [(i * 3, i * 2) for i in range(N)]
+    await drive_stream(dut, samples)
+
+    for _ in range(200):
+        await RisingEdge(dut.i_clk)
+        assert int(dut.o_data.value) == 0, "o_data must remain 0 when FFT is disabled"
+    cocotb.log.info("  o_data stayed 0 with FFT disabled  OK")
+
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == N, f"cnt_inputs: expected {N}, got {cnt_in}"
+    assert cnt_out == 0, f"cnt_outputs: expected 0, got {cnt_out}"
+    cocotb.log.info(f"  cnt_inputs={cnt_in}  cnt_outputs={cnt_out}  OK")
+    cocotb.log.info("test_fft_disabled_no_output PASSED.")
+
+
+@cocotb.test()
+async def test_enable_counters_and_status(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_enable_counters_and_status ---")
+
+    await enable_fft_and_drain(dut)
+
+    samples = [(10 * (i % 4 + 1), -5 * (i % 4 + 1)) for i in range(N)]
+    send_task = cocotb.start_soon(drive_stream(dut, samples))
+    received = await capture_block(dut, N)
+    await send_task
+
+    non_zero = [(re, im) for re, im in received if re != 0 or im != 0]
+    assert len(non_zero) > 0, "All output samples are (0,0)"
+    cocotb.log.info(f"  {len(non_zero)}/{N} non-zero output samples  OK")
+
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == N, f"cnt_inputs: expected {N}, got {cnt_in}"
+    assert cnt_out == N, f"cnt_outputs: expected {N}, got {cnt_out}"
+    cocotb.log.info(f"  cnt_inputs={cnt_in}  cnt_outputs={cnt_out}  OK")
+
+    status = await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert (status >> 2) & 1 == 1, (
+        f"tx_ready should be 1 when idle, status=0x{status:02X}"
+    )
+    assert (status >> 3) & 1 == 0, (
+        f"fft_inverse should be 0 in FFT mode, status=0x{status:02X}"
+    )
+    cocotb.log.info(f"  status_flags=0x{status:02X}  OK")
+
+    last_re = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_RE))
+    last_im = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_IM))
+    exp_re, exp_im = received[-1]
+    assert last_re == exp_re, f"last_out_re: expected {exp_re}, got {last_re}"
+    assert last_im == exp_im, f"last_out_im: expected {exp_im}, got {last_im}"
+    cocotb.log.info(f"  last_out: re={last_re} im={last_im}  OK")
+    cocotb.log.info("test_enable_counters_and_status PASSED.")
+
+
+@cocotb.test()
+async def test_zero_input(dut):
+    """FFT of all-zero input must be all-zero with no clipping."""
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_zero_input ---")
+
+    await enable_fft_and_drain(dut)
+
+    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+
+    for i, (re, im) in enumerate(received):
+        assert re == 0 and im == 0, f"Sample {i}: expected (0,0), got ({re},{im})"
+    cocotb.log.info(f"  All {N} output samples are (0,0)  OK")
+
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    assert (err & 0x01) == 0, (
+        f"error_flags[0] should be 0 for zero input, got 0x{err:02X}"
+    )
+    cocotb.log.info(f"  error_flags=0x{err:02X} (no clipping)  OK")
+    cocotb.log.info("test_zero_input PASSED.")
+
+
+@cocotb.test()
+async def test_soft_reset(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_soft_reset ---")
+
+    await enable_fft_and_drain(dut)
+
+    send_task = cocotb.start_soon(
+        drive_stream(dut, [(i + 1, -(i + 1)) for i in range(N)])
+    )
+    await capture_block(dut, N)
+    await send_task
+
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == N, f"Pre-reset cnt_inputs: expected {N}, got {cnt_in}"
+    assert cnt_out == N, f"Pre-reset cnt_outputs: expected {N}, got {cnt_out}"
+    cocotb.log.info(f"  Pre-reset: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
+
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_SRESET)
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_ENABLE)
+    for _ in range(PIPELINE_DRAIN_CYCLES):
+        await RisingEdge(dut.i_clk)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == 0, f"Post-reset cnt_inputs: expected 0, got {cnt_in}"
+    assert cnt_out == 0, f"Post-reset cnt_outputs: expected 0, got {cnt_out}"
+    cocotb.log.info(f"  Post-reset: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
+
+    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+    assert len(received) == N, (
+        f"Post-reset block: expected {N} samples, got {len(received)}"
+    )
+    cocotb.log.info(f"  Post-reset block: {N} outputs received  OK")
+    cocotb.log.info("test_soft_reset PASSED.")
+
+
+@cocotb.test()
+async def test_spi_last_out_tracking(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_spi_last_out_tracking ---")
+
+    await enable_fft_and_drain(dut)
+
+    for block_idx in range(2):
+        samples = [
+            ((block_idx + 1) * (i % 8 + 1), -(block_idx + 1) * (i % 8 + 1))
+            for i in range(N)
+        ]
+        send_task = cocotb.start_soon(drive_stream(dut, samples))
+        received = await capture_block(dut, N)
+        await send_task
+
+        for _ in range(20):
+            await RisingEdge(dut.i_clk)
+
+        non_zero = [(re, im) for re, im in received if re != 0 or im != 0]
+        assert len(non_zero) > 0, f"Block {block_idx}: all outputs are (0,0)"
+        cocotb.log.info(
+            f"  Block {block_idx}: {len(non_zero)}/{N} non-zero samples  OK"
+        )
+
+        last_re = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_RE))
+        last_im = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_IM))
+        exp_re, exp_im = received[-1]
+        assert last_re == exp_re, (
+            f"Block {block_idx} last_out_re: expected {exp_re}, got {last_re}"
+        )
+        assert last_im == exp_im, (
+            f"Block {block_idx} last_out_im: expected {exp_im}, got {last_im}"
+        )
+        cocotb.log.info(f"  Block {block_idx} last_out: re={last_re} im={last_im}  OK")
+
+        if block_idx < 1:
+            await soft_reset_between_blocks(dut, CFG_ENABLE)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == N, f"cnt_inputs after last block: expected {N}, got {cnt_in}"
+    assert cnt_out == N, f"cnt_outputs after last block: expected {N}, got {cnt_out}"
+    cocotb.log.info(f"  Final counters: cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
+    cocotb.log.info("test_spi_last_out_tracking PASSED.")
+
+
+@cocotb.test()
+async def test_dc_input_energy(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_dc_input_energy ---")
+
+    await enable_fft_and_drain(dut)
+
+    A = 4
+    send_task = cocotb.start_soon(drive_stream(dut, [(A, 0)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+
+    non_zero = [
+        (i, re, im) for i, (re, im) in enumerate(received) if re != 0 or im != 0
+    ]
+    cocotb.log.info(f"  Non-zero outputs: {non_zero}")
+
+    assert len(non_zero) == 1, (
+        f"DC input should produce exactly 1 non-zero bin, got {len(non_zero)}: {non_zero}"
+    )
+    bin0_phys, bin0_re, bin0_im = non_zero[0]
+    cocotb.log.info(
+        f"  Bin 0 at physical index {bin0_phys}: re={bin0_re} im={bin0_im}  OK"
+    )
+
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    assert (err & 0x01) == 0, (
+        f"No clipping expected for DC A={A}, error_flags=0x{err:02X}"
+    )
+    cocotb.log.info(f"  error_flags=0x{err:02X} (no clipping)  OK")
+    cocotb.log.info("test_dc_input_energy PASSED.")
+
+
+@cocotb.test()
+async def test_fft_mathematical_roundtrip(dut):
+    """Full end-to-end FFT: input Q(8,6), output Q(8,3)."""
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_fft_mathematical_roundtrip ---")
+    await enable_fft_and_drain(dut)
+    await run_roundtrip(dut, inverse=0, seed=42)
     cocotb.log.info("test_fft_mathematical_roundtrip PASSED.")
+
+
+# ─────────────────────────────────────────────────────────────────
+# IFFT Tests
+# ─────────────────────────────────────────────────────────────────
+
+
+@cocotb.test()
+async def test_ifft_status_flag(dut):
+    """
+    After enabling with CFG_ENABLE_IFFT, status_flags[3] (fft_inverse)
+    must read back as 1.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_status_flag ---")
+
+    await enable_ifft_and_drain(dut)
+
+    status = await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert (status >> 3) & 1 == 1, (
+        f"fft_inverse flag should be 1 in IFFT mode, status=0x{status:02X}"
+    )
+    cocotb.log.info(f"  status_flags=0x{status:02X} (fft_inverse=1)  OK")
+    cocotb.log.info("test_ifft_status_flag PASSED.")
+
+
+@cocotb.test()
+async def test_ifft_zero_input(dut):
+    """IFFT of all-zero frequency-domain input must be all-zero time-domain output."""
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_zero_input ---")
+
+    await enable_ifft_and_drain(dut)
+
+    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+
+    for i, (re, im) in enumerate(received):
+        assert re == 0 and im == 0, (
+            f"IFFT zero-input: sample {i} expected (0,0), got ({re},{im})"
+        )
+    cocotb.log.info(f"  All {N} IFFT output samples are (0,0)  OK")
+
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    assert (err & 0x01) == 0, (
+        f"No clipping expected for zero IFFT input, error_flags=0x{err:02X}"
+    )
+    cocotb.log.info(f"  error_flags=0x{err:02X} (no clipping)  OK")
+    cocotb.log.info("test_ifft_zero_input PASSED.")
+
+
+@cocotb.test()
+async def test_ifft_dc_bin(dut):
+    """
+    IFFT of a single non-zero DC bin (bin 0 only) produces a constant
+    real time-domain sequence.  All samples must have the same re value
+    and zero imaginary part.
+    The serial output is in MDC order, so physical index 0 corresponds to
+    frequency bin MDC_MAP[0]=0.  We send A in bin 0 and zero in all others,
+    then after IFFT + 1/N scaling every time-domain sample should be A/N.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_dc_bin ---")
+
+    await enable_ifft_and_drain(dut)
+
+    # Build freq-domain input: A in bin 0, zeros elsewhere.
+    # The MDC_MAP tells us which physical serial position maps to which bin.
+    # To put energy in bin 0 we need physical position MDC_MAP.index(0)=0.
+    A = 32  # Q(8,3): 32 * 2^-3 = 4.0
+    freq_samples = [(0, 0)] * N
+    phys_bin0 = MDC_MAP.index(0)
+    freq_samples[phys_bin0] = (A, 0)
+
+    send_task = cocotb.start_soon(drive_stream(dut, freq_samples))
+    received = await capture_block(dut, N)
+    await send_task
+
+    # A is an integer in Q(8,3): float = A / 2^NBF_FFT_OUT = 32/8 = 4.0
+    # After IFFT + 1/N scaling: float = 4.0 / N = 0.25
+    # Output is Q(8,6): integer = 0.25 * 2^NBF_FFT_IN = 16
+    expected_int = round(A * (2**NBF_FFT_IN) / (N * (2**NBF_FFT_OUT)))
+    cocotb.log.info(f"  Expected time-domain integer value per sample: {expected_int}")
+
+    for i, (re, im) in enumerate(received):
+        assert re == expected_int, (
+            f"IFFT DC bin: sample {i} re expected {expected_int}, got {re}"
+        )
+        assert im == 0, f"IFFT DC bin: sample {i} im expected 0, got {im}"
+    cocotb.log.info(f"  All {N} time-domain samples re={expected_int} im=0  OK")
+    cocotb.log.info("test_ifft_dc_bin PASSED.")
+
+
+@cocotb.test()
+async def test_ifft_counters(dut):
+    """IFFT mode: cnt_inputs and cnt_outputs increment correctly."""
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_counters ---")
+
+    await enable_ifft_and_drain(dut)
+
+    samples = [(i % 16, -(i % 8)) for i in range(N)]
+    send_task = cocotb.start_soon(drive_stream(dut, samples))
+    received = await capture_block(dut, N)
+    await send_task
+
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == N, f"IFFT cnt_inputs: expected {N}, got {cnt_in}"
+    assert cnt_out == N, f"IFFT cnt_outputs: expected {N}, got {cnt_out}"
+    cocotb.log.info(f"  cnt_inputs={cnt_in}  cnt_outputs={cnt_out}  OK")
+
+    last_re = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_RE))
+    last_im = to_signed_8(await spi_read(dut, ADDR_LAST_OUT_IM))
+    exp_re, exp_im = received[-1]
+    assert last_re == exp_re, f"IFFT last_out_re: expected {exp_re}, got {last_re}"
+    assert last_im == exp_im, f"IFFT last_out_im: expected {exp_im}, got {last_im}"
+    cocotb.log.info(f"  last_out: re={last_re} im={last_im}  OK")
+    cocotb.log.info("test_ifft_counters PASSED.")
+
+
+@cocotb.test()
+async def test_ifft_mathematical_roundtrip(dut):
+    """Full end-to-end IFFT: input Q(8,3), output Q(8,6)."""
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_mathematical_roundtrip ---")
+    await enable_ifft_and_drain(dut)
+    await run_roundtrip(dut, inverse=1, seed=99)
+    cocotb.log.info("test_ifft_mathematical_roundtrip PASSED.")
+
+
+@cocotb.test()
+async def test_fft_ifft_mode_switch(dut):
+    """
+    Verify that switching FFT → IFFT → FFT via soft-reset produces correct
+    results in each mode.  This exercises the i_inverse path through the full
+    reset/drain sequence.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_fft_ifft_mode_switch ---")
+
+    # Block 1: FFT
+    await enable_fft_and_drain(dut)
+    cocotb.log.info("  [1/3] FFT block")
+    await run_roundtrip(dut, inverse=0, seed=7)
+
+    # Switch to IFFT
+    await soft_reset_between_blocks(dut, CFG_ENABLE_IFFT)
+
+    # Block 2: IFFT
+    cocotb.log.info("  [2/3] IFFT block")
+    await run_roundtrip(dut, inverse=1, seed=13)
+
+    # Switch back to FFT
+    await soft_reset_between_blocks(dut, CFG_ENABLE)
+
+    # Block 3: FFT again
+    cocotb.log.info("  [3/3] FFT block again")
+    await run_roundtrip(dut, inverse=0, seed=21)
+
+    cocotb.log.info("test_fft_ifft_mode_switch PASSED.")

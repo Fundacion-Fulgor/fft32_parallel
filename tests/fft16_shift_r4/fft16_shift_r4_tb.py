@@ -24,19 +24,22 @@ async def test_fft16_shift_r4(dut):
     dut._log.info("--- TEST INIT ---")
     dut._log.info("Cycle | In | Valid | d0 | d1 | d2 | d3 ")
     dut._log.info("-" * 85)
-
-    for cycle in range(30):
-        if cycle < 16:
-            if cycle == 0:
-                dut.i_valid.value = 1
-            else:
-                dut.i_valid.value = 0
-            dut.i_data_re.value = cycle
-            dut.i_data_im.value = cycle
+    
+    sample_idx = 0
+    input_history = []
+    for cycle in range(150):
+        if sample_idx < 16 and (cycle % 8) == 0:
+            dut.i_valid.value = 1
+            dut.i_data_re.value = sample_idx
+            dut.i_data_im.value = sample_idx
+            in_val = sample_idx
+            input_history.append(sample_idx)
+            sample_idx += 1
         else:
             dut.i_valid.value = 0
             dut.i_data_re.value = 0
             dut.i_data_im.value = 0
+            in_val = 0
 
         await RisingEdge(dut.i_clk)
 
@@ -46,18 +49,26 @@ async def test_fft16_shift_r4(dut):
         d2 = get_signed(dut.o_data2_re)
         d3 = get_signed(dut.o_data3_re)
 
-        in_val = cycle if cycle < 16 else "-"
         dut._log.info(f"{cycle:^5} | {in_val:^2} | {v_out!s:^5} | {d0:^15} | {d1:^14} | {d2:^14} | {d3:^14}")
 
-        if v_out == 1: 
-            exp_d0 = cycle - 13 if (cycle - 13) < 16 else 0
-            exp_d1 = cycle - 9  if (cycle - 9)  < 16 else 0
-            exp_d2 = cycle - 5  if (cycle - 5)  < 16 else 0
-            exp_d3 = cycle - 1  if (cycle - 1)  < 16 else 0
-            
-            assert d0 == exp_d0, f"Error in d0: expected {exp_d0}, received {d0}"
-            assert d1 == exp_d1, f"Error in d1: expected {exp_d1}, received {d1}"
-            assert d2 == exp_d2, f"Error in d2: expected {exp_d2}, received {d2}"
-            assert d3 == exp_d3, f"Error in d3: expected {exp_d3}, received {d3}"
+        if v_out == 1:
+        
+            valid_count = len(input_history)
+
+            def get_expected(delay):
+                idx = valid_count - delay
+                if 0 <= idx < len(input_history):
+                    return input_history[idx]
+                return 0
+
+            exp_d0 = get_expected(13)
+            exp_d1 = get_expected(9)
+            exp_d2 = get_expected(5)
+            exp_d3 = get_expected(1)
+
+            assert d0 == exp_d0, f"d0 error: expected {exp_d0}, got {d0}"
+            assert d1 == exp_d1, f"d1 error: expected {exp_d1}, got {d1}"
+            assert d2 == exp_d2, f"d2 error: expected {exp_d2}, got {d2}"
+            assert d3 == exp_d3, f"d3 error: expected {exp_d3}, got {d3}"
 
     dut._log.info("--- TEST PASSED ---")
