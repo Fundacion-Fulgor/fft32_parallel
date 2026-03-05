@@ -117,22 +117,22 @@ assign w_tw_re[13] = 10'h0C4;
 assign w_tw_re[14] = 10'h16A;
 assign w_tw_re[15] = 10'h1D9;
 
-assign w_tw_im[ 0] = 10'h000;
-assign w_tw_im[ 1] = 10'h33C;
-assign w_tw_im[ 2] = 10'h296;
-assign w_tw_im[ 3] = 10'h227;
-assign w_tw_im[ 4] = 10'h200;
-assign w_tw_im[ 5] = 10'h227;
-assign w_tw_im[ 6] = 10'h296;
-assign w_tw_im[ 7] = 10'h33C;
-assign w_tw_im[ 8] = 10'h000;
-assign w_tw_im[ 9] = 10'h0C4;
-assign w_tw_im[10] = 10'h16A;
-assign w_tw_im[11] = 10'h1D9;
-assign w_tw_im[12] = 10'h1FF;
-assign w_tw_im[13] = 10'h1D9;
-assign w_tw_im[14] = 10'h16A;
-assign w_tw_im[15] = 10'h0C4;
+assign w_tw_im[ 0] = (i_inverse)? 10'h000 : 10'h000;
+assign w_tw_im[ 1] = (i_inverse)? 10'h0C4 : 10'h33C;
+assign w_tw_im[ 2] = (i_inverse)? 10'h16A : 10'h296;
+assign w_tw_im[ 3] = (i_inverse)? 10'h1D9 : 10'h227;
+assign w_tw_im[ 4] = (i_inverse)? 10'h1FF : 10'h200;
+assign w_tw_im[ 5] = (i_inverse)? 10'h1D9 : 10'h227;
+assign w_tw_im[ 6] = (i_inverse)? 10'h16A : 10'h296;
+assign w_tw_im[ 7] = (i_inverse)? 10'h0C4 : 10'h33C;
+assign w_tw_im[ 8] = (i_inverse)? 10'h000 : 10'h000;
+assign w_tw_im[ 9] = (i_inverse)? 10'h33C : 10'h0C4;
+assign w_tw_im[10] = (i_inverse)? 10'h296 : 10'h16A;
+assign w_tw_im[11] = (i_inverse)? 10'h227 : 10'h1D9;
+assign w_tw_im[12] = (i_inverse)? 10'h200 : 10'h1FF;
+assign w_tw_im[13] = (i_inverse)? 10'h227 : 10'h1D9;
+assign w_tw_im[14] = (i_inverse)? 10'h296 : 10'h16A;
+assign w_tw_im[15] = (i_inverse)? 10'h33C : 10'h0C4;
 
 always @(posedge i_clk) begin
     if (!i_rst_n) begin
@@ -236,95 +236,73 @@ assign tw3_re = w_tw_re[idx_tw3];
 assign tw3_im = w_tw_im[idx_tw3];
 
 
-localparam NBF_DATA = NB_INPUT-2;
+fft4_mul u_fft4_mul_0 (
 
-complex_multiplier #(
-    .NB_INPUT_A     (NB_INPUT+2),
-    .NBF_INPUT_A    (NBF_DATA),
-    .NB_INPUT_B     (NB_TW),
-    .NBF_INPUT_B    (NBF_TW),
-    .NB_OUTPUT      (NB_INPUT+2),
-    .NBF_OUTPUT     (NBF_DATA),
-    .RND_MD         (1)
-) u_complex_multiplier_0 (
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+        .VPWR       (VPWR),
+        .VGND       (VGND),
     `endif
+    
     .i_clk          (i_clk),
-    .i_real_A       (s2_x0_re),
-    .i_imag_A       (s2_x0_im),
-    .i_real_B       (tw0_re),
-    .i_imag_B       (tw0_im),
-    .o_real         (o_data0_re),
-    .o_imag         (o_data0_im)
+    .i_inverse      (i_inverse),
+    .i_data_re      (s2_x0_re),
+    .i_data_im      (s2_x0_im),
+    .i_tw_re        (tw0_re),
+    .i_tw_im        (tw0_im),
+    .o_data_re      (o_data0_re),
+    .o_data_im      (o_data0_im)
 );
 
 
-complex_multiplier #(
-    .NB_INPUT_A (NB_INPUT+2),
-    .NBF_INPUT_A(NBF_DATA),
-    .NB_INPUT_B (NB_TW),
-    .NBF_INPUT_B(NBF_TW),
-    .NB_OUTPUT  (NB_INPUT+2),
-    .NBF_OUTPUT (NBF_DATA),
-    .RND_MD     (1)
-) u_complex_multiplier_1 (
+fft4_mul u_fft4_mul_1 (
+
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+        .VPWR       (VPWR),
+        .VGND       (VGND),
     `endif
-    .i_clk      (i_clk),
-    .i_real_A   (s2_x1_re),
-    .i_imag_A   (s2_x1_im),
-    .i_real_B   (tw1_re),
-    .i_imag_B   (tw1_im),
-    .o_real     (o_data1_re),
-    .o_imag     (o_data1_im)
+    
+    .i_clk          (i_clk),
+    .i_inverse      (i_inverse),
+    .i_data_re      (s2_x1_re),
+    .i_data_im      (s2_x1_im),
+    .i_tw_re        (tw1_re),
+    .i_tw_im        (tw1_im),
+    .o_data_re      (o_data1_re),
+    .o_data_im      (o_data1_im)
 );
 
-complex_multiplier #(
-    .NB_INPUT_A (NB_INPUT+2),
-    .NBF_INPUT_A(NBF_DATA),
-    .NB_INPUT_B (NB_TW),
-    .NBF_INPUT_B(NBF_TW),
-    .NB_OUTPUT  (NB_INPUT+2),
-    .NBF_OUTPUT (NBF_DATA),
-    .RND_MD     (1)
-) u_complex_multiplier_2 (
+fft4_mul u_fft4_mul_2 (
+
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+        .VPWR       (VPWR),
+        .VGND       (VGND),
     `endif
-    .i_clk      (i_clk),
-    .i_real_A   (s2_x2_re),
-    .i_imag_A   (s2_x2_im),
-    .i_real_B   (tw2_re),
-    .i_imag_B   (tw2_im),
-    .o_real     (o_data2_re),
-    .o_imag     (o_data2_im)
+    
+    .i_clk          (i_clk),
+    .i_inverse      (i_inverse),
+    .i_data_re      (s2_x2_re),
+    .i_data_im      (s2_x2_im),
+    .i_tw_re        (tw2_re),
+    .i_tw_im        (tw2_im),
+    .o_data_re      (o_data2_re),
+    .o_data_im      (o_data2_im)
 );
 
-complex_multiplier #(
-    .NB_INPUT_A (NB_INPUT+2),
-    .NBF_INPUT_A(NBF_DATA),
-    .NB_INPUT_B (NB_TW),
-    .NBF_INPUT_B(NBF_TW),
-    .NB_OUTPUT  (NB_INPUT+2),
-    .NBF_OUTPUT (NBF_DATA),
-    .RND_MD     (1)
-) u_complex_multiplier_3 (
+fft4_mul u_fft4_mul_3 (
+    
     `ifdef USE_POWER_PINS
-    .VPWR       (VPWR),
-    .VGND       (VGND),
+        .VPWR       (VPWR),
+        .VGND       (VGND),
     `endif
-    .i_clk      (i_clk),
-    .i_real_A   (s2_x3_re),
-    .i_imag_A   (s2_x3_im),
-    .i_real_B   (tw3_re),
-    .i_imag_B   (tw3_im),
-    .o_real     (o_data3_re),
-    .o_imag     (o_data3_im)
+    
+    .i_clk          (i_clk),
+    .i_inverse      (i_inverse),
+    .i_data_re      (s2_x3_re),
+    .i_data_im      (s2_x3_im),
+    .i_tw_re        (tw3_re),
+    .i_tw_im        (tw3_im),
+    .o_data_re      (o_data3_re),
+    .o_data_im      (o_data3_im)
 );
 
 assign o_valid = valid_4q;
