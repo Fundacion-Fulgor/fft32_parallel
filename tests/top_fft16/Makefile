@@ -20,6 +20,7 @@ VERILOG_SOURCES += $(SRC_DIR)/cdc_snapshot.v
 VERILOG_SOURCES += $(SRC_DIR)/fft16.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_radix4.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc.v
+VERILOG_SOURCES += $(SRC_DIR)/fft4_mul.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc_stage1.v
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc_stage2.v
 VERILOG_SOURCES += $(SRC_DIR)/fft16_shift_r2.v

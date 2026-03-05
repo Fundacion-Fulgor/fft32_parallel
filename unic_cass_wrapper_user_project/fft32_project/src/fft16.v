@@ -395,22 +395,22 @@ assign mdc_ffx_valid = mdc_ff0_valid & mdc_ff1_valid & mdc_ff2_valid & mdc_ff3_v
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-assign mdc0_shift_d0_re = (i_inverse)? (mdc_ff0_data0_re >>> 4) : mdc_ff0_data0_re;
-assign mdc0_shift_d0_im = (i_inverse)? (mdc_ff0_data0_im >>> 4) : mdc_ff0_data0_im;
-assign mdc0_shift_d1_re = (i_inverse)? (mdc_ff0_data1_re >>> 4) : mdc_ff0_data1_re;
-assign mdc0_shift_d1_im = (i_inverse)? (mdc_ff0_data1_im >>> 4) : mdc_ff0_data1_im;
-assign mdc1_shift_d0_re = (i_inverse)? (mdc_ff1_data0_re >>> 4) : mdc_ff1_data0_re;
-assign mdc1_shift_d0_im = (i_inverse)? (mdc_ff1_data0_im >>> 4) : mdc_ff1_data0_im;
-assign mdc1_shift_d1_re = (i_inverse)? (mdc_ff1_data1_re >>> 4) : mdc_ff1_data1_re;
-assign mdc1_shift_d1_im = (i_inverse)? (mdc_ff1_data1_im >>> 4) : mdc_ff1_data1_im;
-assign mdc2_shift_d0_re = (i_inverse)? (mdc_ff2_data0_re >>> 4) : mdc_ff2_data0_re;
-assign mdc2_shift_d0_im = (i_inverse)? (mdc_ff2_data0_im >>> 4) : mdc_ff2_data0_im;
-assign mdc2_shift_d1_re = (i_inverse)? (mdc_ff2_data1_re >>> 4) : mdc_ff2_data1_re;
-assign mdc2_shift_d1_im = (i_inverse)? (mdc_ff2_data1_im >>> 4) : mdc_ff2_data1_im;
-assign mdc3_shift_d0_re = (i_inverse)? (mdc_ff3_data0_re >>> 4) : mdc_ff3_data0_re;
-assign mdc3_shift_d0_im = (i_inverse)? (mdc_ff3_data0_im >>> 4) : mdc_ff3_data0_im;
-assign mdc3_shift_d1_re = (i_inverse)? (mdc_ff3_data1_re >>> 4) : mdc_ff3_data1_re;
-assign mdc3_shift_d1_im = (i_inverse)? (mdc_ff3_data1_im >>> 4) : mdc_ff3_data1_im;
+assign mdc0_shift_d0_re = mdc_ff0_data0_re;
+assign mdc0_shift_d0_im = mdc_ff0_data0_im;
+assign mdc0_shift_d1_re = mdc_ff0_data1_re;
+assign mdc0_shift_d1_im = mdc_ff0_data1_im;
+assign mdc1_shift_d0_re = mdc_ff1_data0_re;
+assign mdc1_shift_d0_im = mdc_ff1_data0_im;
+assign mdc1_shift_d1_re = mdc_ff1_data1_re;
+assign mdc1_shift_d1_im = mdc_ff1_data1_im;
+assign mdc2_shift_d0_re = mdc_ff2_data0_re;
+assign mdc2_shift_d0_im = mdc_ff2_data0_im;
+assign mdc2_shift_d1_re = mdc_ff2_data1_re;
+assign mdc2_shift_d1_im = mdc_ff2_data1_im;
+assign mdc3_shift_d0_re = mdc_ff3_data0_re;
+assign mdc3_shift_d0_im = mdc_ff3_data0_im;
+assign mdc3_shift_d1_re = mdc_ff3_data1_re;
+assign mdc3_shift_d1_im = mdc_ff3_data1_im;
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
