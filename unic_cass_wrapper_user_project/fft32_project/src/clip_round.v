@@ -43,15 +43,15 @@ generate
                              (w_data_re[NB_INP-1]) ? {1'b1,{NB_OUT-1{1'b0}}} : {1'b0,{NB_OUT-1{1'b1}}};
             assign w_rnd_im = (~|w_data_im[NB_INP-1 -:SIGNED] || &w_data_im[NB_INP-1 -:SIGNED]) ?
                               w_data_im[(NB_INP-SIGNED)-:NB_OUT] :
-                             (w_data_im[NB_INP-1]) ? {1'b1,{NB_OUT-1{1'b0}}} : {1'b0,{NB_OUT-1{1'b1}}};            
+                             (w_data_im[NB_INP-1]) ? {1'b1,{NB_OUT-1{1'b0}}} : {1'b0,{NB_OUT-1{1'b1}}};
         end
         1: begin : gen_round
             wire [NB_INP:0] data_plus_round_re;
             wire [NB_INP:0] data_plus_round_im;
 
             if (BITS_DIS > 0) begin : gen_add_round
-                assign data_plus_round_re = {i_data_re[NB_INP-1], i_data_re} + (1'b1 << (BITS_DIS - 1));
-                assign data_plus_round_im = {i_data_im[NB_INP-1], i_data_im} + (1'b1 << (BITS_DIS - 1));
+                assign data_plus_round_re = {i_data_re[NB_INP-1], i_data_re} + ({{NB_INP{1'b0}}, 1'b1} << (BITS_DIS - 1));
+                assign data_plus_round_im = {i_data_im[NB_INP-1], i_data_im} + ({{NB_INP{1'b0}}, 1'b1} << (BITS_DIS - 1));
             end else begin : gen_no_round
                 assign data_plus_round_re = {i_data_re[NB_INP-1], i_data_re};
                 assign data_plus_round_im = {i_data_im[NB_INP-1], i_data_im};
@@ -68,7 +68,7 @@ generate
             default: begin : gen_default
                 assign w_rnd_re = {NB_OUT{1'b0}};
                 assign w_rnd_im = {NB_OUT{1'b0}};
-            end 
+            end
     endcase
 endgenerate
 

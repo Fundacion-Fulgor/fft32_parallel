@@ -65,7 +65,7 @@ end
 always @(*) begin
     next_state = current_state;
     next_cnt   = current_cnt;
-    next_shift = {current_shift[TOTAL_BITS-2:0], i_data}; 
+    next_shift = {current_shift[TOTAL_BITS-2:0], i_data};
     next_samp  = current_samp;
 
     case (current_state)
@@ -76,12 +76,12 @@ always @(*) begin
                 next_state = STATE_RECV;
             end
         end
-        
+
         STATE_RECV: begin
             if (current_cnt == TOTAL_BITS - 1) begin
                 next_cnt = 0;
-                if (current_samp == N_DATA - 1) begin
-                    next_state = STATE_IDLE; 
+                if ({ {(32-SAMP_W){1'b0}}, current_samp } == (N_DATA - 1)) begin
+                    next_state = STATE_IDLE;
                 end
                 else begin
                     next_samp = current_samp + 1;
@@ -91,7 +91,7 @@ always @(*) begin
                 next_cnt = current_cnt + 1;
             end
         end
-        
+
         default: next_state = STATE_IDLE;
     endcase
 end
