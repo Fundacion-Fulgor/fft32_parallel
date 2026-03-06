@@ -143,7 +143,7 @@ always @(posedge i_clk) begin
         inv_q    <= 1'b0;
         inv_2q   <= 1'b0;
         inv_3q   <= 1'b0;
-    end 
+    end
     else if (i_enable) begin
         valid_4q <= valid_3q;
         valid_3q <= valid_2q;
@@ -174,7 +174,7 @@ always @(posedge i_clk) begin
         s1_ev_sum_im <= r_x0_im + r_x2_im;
         s1_ev_sub_re <= r_x0_re - r_x2_re;
         s1_ev_sub_im <= r_x0_im - r_x2_im;
-        
+
         s1_od_sum_re <= r_x1_re + r_x3_re;
         s1_od_sum_im <= r_x1_im + r_x3_im;
         s1_od_sub_re <= r_x1_re - r_x3_re;
@@ -193,9 +193,9 @@ always @(posedge i_clk) begin
             s2_x1_im <= s1_ev_sub_im + s1_od_sub_re;
             s2_x3_re <= s1_ev_sub_re + s1_od_sub_im;
             s2_x3_im <= s1_ev_sub_im - s1_od_sub_re;
-        end 
+        end
         else begin
-            s2_x1_re <= s1_ev_sub_re + s1_od_sub_im; 
+            s2_x1_re <= s1_ev_sub_re + s1_od_sub_im;
             s2_x1_im <= s1_ev_sub_im - s1_od_sub_re;
             s2_x3_re <= s1_ev_sub_re - s1_od_sub_im;
             s2_x3_im <= s1_ev_sub_im + s1_od_sub_re;
@@ -217,14 +217,14 @@ always @(posedge i_clk) begin
         end
         m_q  <= r_m_cnt;
         m_2q <= m_q;
-        m_3q <= m_2q; 
+        m_3q <= m_2q;
     end
 end
 
-assign idx_tw0 = 4'd0;                  // k=0 -> m * 0
-assign idx_tw1 = m_3q;                  // k=1 -> m * 1
-assign idx_tw2 = {m_3q, 1'b0};          // k=2 -> m * 2 (shift left)
-assign idx_tw3 = m_3q + {m_3q, 1'b0};   // k=3 -> m * 3 (m + 2m)
+assign idx_tw0 = 4'd0;                                 // k=0 -> m * 0
+assign idx_tw1 = {2'b00, m_3q};                        // k=1 -> m * 1
+assign idx_tw2 = {1'b0, m_3q, 1'b0};                   // k=2 -> m * 2 (shift left)
+assign idx_tw3 = {2'b00, m_3q} + {1'b0, m_3q, 1'b0};   // k=3 -> m * 3 (m + 2m)
 
 assign tw0_re = w_tw_re[idx_tw0];
 assign tw0_im = w_tw_im[idx_tw0];
@@ -242,7 +242,7 @@ fft4_mul u_fft4_mul_0 (
         .VPWR       (VPWR),
         .VGND       (VGND),
     `endif
-    
+
     .i_clk          (i_clk),
     .i_inverse      (i_inverse),
     .i_data_re      (s2_x0_re),
@@ -260,7 +260,7 @@ fft4_mul u_fft4_mul_1 (
         .VPWR       (VPWR),
         .VGND       (VGND),
     `endif
-    
+
     .i_clk          (i_clk),
     .i_inverse      (i_inverse),
     .i_data_re      (s2_x1_re),
@@ -277,7 +277,7 @@ fft4_mul u_fft4_mul_2 (
         .VPWR       (VPWR),
         .VGND       (VGND),
     `endif
-    
+
     .i_clk          (i_clk),
     .i_inverse      (i_inverse),
     .i_data_re      (s2_x2_re),
@@ -289,12 +289,12 @@ fft4_mul u_fft4_mul_2 (
 );
 
 fft4_mul u_fft4_mul_3 (
-    
+
     `ifdef USE_POWER_PINS
         .VPWR       (VPWR),
         .VGND       (VGND),
     `endif
-    
+
     .i_clk          (i_clk),
     .i_inverse      (i_inverse),
     .i_data_re      (s2_x3_re),
