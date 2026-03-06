@@ -824,7 +824,7 @@ From the final KLayout views, the layout can be interpreted as follows:
 
 ### Identification of the embedded `Wuser_project`
 
-![alt text](img/img/12.png)
+![alt text](img/12.png)
 
 
 In the final KLayout screenshots, the **central square block** is clearly distinguishable from the rest of the wrapper.
@@ -842,4 +842,4 @@ Thus, the final design should be interpreted as a **hierarchical physical integr
 - **`user_project`** is the wrapper-prepared implementation derived from it,
 - and **`user_project_wrapper`** is the final top-level integrated layout.
 
-![alt text](img/img/13.png)
+![alt text](img/13.png)
