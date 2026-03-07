@@ -167,18 +167,6 @@ flowchart LR
     style P3  fill:#e3f2fd,stroke:#1565c0,color:#000
 ```
 
-### 16-Point DIF FFT Data-Flow Graph
-
-The figure below shows the standard 16-point decimation-in-frequency (DIF) signal flow graph. The first two stages — corresponding to the Radix-4 front-end — involve data dependencies across all inputs. After those stages the computation splits into four fully independent branches, each mapped to one `fft4_mdc` pipeline.
-
-![16-point DIF FFT data-flow graph](docs/img/fft16_dfg.png)
-*16-point DIF FFT signal flow graph. The horizontal dashed lines mark the boundary between the shared Radix-4 front-end (left) and the four independent Radix-2 MDC pipelines (right). Based on Palmer & Nelson, FPL 2004.*
-
-### Fixed-Point Pipeline Diagram
-
-![Fixed-point format chain through the FFT pipeline](docs/img/fft16_fxp_pipeline.png)
-*Word formats at each stage of the FFT/IFFT pipeline. FFT path (top): Q(8,6) input narrows to Q(8,3) output. IFFT path (bottom): Q(8,3) input widens to Q(8,6) output, with the 1/N normalisation absorbed into the clip_round output format.*
-
 ### IFFT Mode
 
 The same hardware is reused for the inverse transform with two changes:
@@ -602,59 +590,6 @@ For the complete physical design report including area increase justification (`
 
 ![Metal layer view of the final layout](docs/pd_previous_study/img/13.png)
 *Metal layer view of the final implemented layout (`user_project_wrapper`).*
-
----
-
-## Repository Structure
-
-```
-parallel_fft16/
-├── rtl/
-│   ├── top_fft16.sv
-│   ├── fft16.sv
-│   ├── fft4_radix4.sv
-│   ├── fft4_mdc.sv
-│   ├── fft4_mdc_stage1.sv
-│   ├── fft4_mdc_stage2.sv
-│   ├── clip_round.sv
-│   ├── complex_multiplier.sv
-│   ├── fft16_shift_r4.sv
-│   ├── fft16_shift_r2.sv
-│   ├── buffer_parallel2serial.sv
-│   ├── tx_serializer.sv
-│   ├── rx_serializer.sv
-│   ├── debug_system.sv
-│   ├── spi_slave_mode0.sv
-│   ├── debug_unit.sv
-│   └── cdc_snapshot.sv
-├── sim/
-│   ├── fft16.py
-│   ├── model_fft4.py
-│   ├── top_fft16_tb.py
-│   ├── fft16_tb.py
-│   ├── fft4_mdc_tb.py
-│   ├── fft16_shift_r4_tb.py
-│   ├── fft16_shift_r2_tb.py
-│   ├── rx_serializer_tb.py
-│   ├── tx_serializer_tb.py
-│   ├── buffer_parallel2serial_tb.py
-│   ├── buffer_tx_tb.py
-│   ├── debug_unit_tb.py
-│   └── debug_system_tb.py
-├── docs/
-│   ├── img/
-│   │   ├── fft16_dfg.png           ← 16-point DIF FFT signal flow graph
-│   │   ├── fft16_fxp_pipeline.png  ← fixed-point format chain diagram
-│   │   ├── input_fft16.png         ← model output: Q(8,6) input signal (time domain)
-│   │   ├── result_fft16.png        ← model output: FFT16 fxp vs NumPy (magnitude + error dB)
-│   │   ├── result_ifft16.png       ← model output: IFFT reconstruction + error dB
-│   │   ├── layout_wrapper.png
-│   │   ├── layout_user_project.png
-│   │   └── layout_wrapper_metal.png
-│   └── pd_report/
-├── fft16_project.v
-└── README.md
-```
 
 ---
 
