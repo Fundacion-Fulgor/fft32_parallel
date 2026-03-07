@@ -280,7 +280,7 @@ def test_fft16():
     diferencia = np.array(fft16_hibrid_result) - numpy_result
     max_error = np.max(np.abs(diferencia))
     
-    print(f"Error absoluto máximo detectado: {max_error:.2e}")
+    print(f"Maximum Absolute Error Detected: {max_error:.2e}")
     
     for i in range(4):
         print(f"Bin {i}:")
@@ -331,7 +331,7 @@ def test_fft16():
     error_reconstruccion = test_signal - reconstructed_signal
     max_error_recon = np.max(np.abs(error_reconstruccion))
     
-    print(f"Error absoluto máximo de reconstrucción: {max_error_recon:.2e}")
+    print(f"Maximum absolute error at Reconstruction: {max_error_recon:.2e}")
     
     for i in range(4):
         print(f"Sample {i}:")

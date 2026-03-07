@@ -21,7 +21,7 @@ reg [2:0] trig_sync;
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         trig_sync <= 3'b111; // Default High (inactive)
-    end 
+    end
     else begin
         trig_sync <= {trig_sync[1:0], trigger_async_n};
     end
@@ -35,7 +35,7 @@ assign capture_pulse = (trig_sync[2] == 1'b1) && (trig_sync[1] == 1'b0);
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         data_out <= {DATA_WIDTH{1'b0}};
-    end 
+    end
     else begin
         if (capture_pulse) begin
             data_out <= data_in;

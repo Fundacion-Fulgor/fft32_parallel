@@ -1,6 +1,6 @@
 PROJECT_DIR = $(shell pwd)
 LIBRELANE_DIR ?= $(PROJECT_DIR)/librelane
-designs = fft32_project
+designs = fft16_project
 
 .PHONY: setup
 setup:

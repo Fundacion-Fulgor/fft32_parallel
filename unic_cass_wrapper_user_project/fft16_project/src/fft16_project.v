@@ -1,4 +1,4 @@
-module fft32_project(
+module fft16_project(
     `ifdef USE_POWER_PINS
     inout               VPWR,  // Common digital supply
     inout               VGND,  // Common digital ground

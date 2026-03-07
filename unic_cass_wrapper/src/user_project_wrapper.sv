@@ -80,7 +80,7 @@ module user_project_wrapper (
     end
     endgenerate
 
-    fft32_project u_fft32_project_inst (
+    fft16_project u_fft16_project_inst (
         `ifdef USE_POWER_PINS
         .VPWR   (VDD),
         .VGND   (VSS),
