@@ -339,6 +339,25 @@ flowchart LR
 
 ---
 
+All tests are currently passing.
+
+| Suite | Tests | Status |
+|---|---|---|
+| `rx_serializer_tb.py` | 4 | ✅ |
+| `tx_serializer_tb.py` | 5 | ✅ |
+| `buffer_parallel2serial_tb.py` | 4 | ✅ |
+| `buffer_tx_tb.py` | 4 | ✅ |
+| `fft16_shift_r4_tb.py` | 1 | ✅ |
+| `fft16_shift_r2_tb.py` | 1 | ✅ |
+| `fft4_mdc_tb.py` | 1 | ✅ |
+| `fft16_tb.py` | 2 | ✅ |
+| `debug_unit_tb.py` | 7 | ✅ |
+| `debug_system_tb.py` | 5 | ✅ |
+| `top_fft16_tb.py` | 13 | ✅ |
+| **Total** | **47** | **✅ All passing** |
+
+---
+
 ### Test Plan
 
 #### `rx_serializer_tb.py` — module: `rx_serializer`
@@ -578,7 +597,7 @@ The **666×666 µm** configuration was selected. The 620×620 µm run also passe
 **Clock tree:** 232 buffers + 111 inverters · worst skew 0.150 ns  
 **Routing:** 22,697 nets · 118,502 vias · 595,252 µm wirelength
 
-For the complete physical design report including area increase justification (`top_fft16` vs `user_project`), routing metrics, and full signoff tables, see [Physical Design Parallel FFT16 Study](docs/pd_report/).
+Note: previous metrics were performed in an isolated project folder, aside from the UNIC-CASS Wrapper fork repository, so those are not the final metrics. For the complete physical design report including area increase justification (`top_fft16` vs `user_project`), routing metrics, and full signoff tables, see [Physical Design Parallel FFT16 Study](docs/pd_previous_study/README.md).
 
 ### Layout
 
