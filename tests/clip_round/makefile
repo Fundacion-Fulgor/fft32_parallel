@@ -6,11 +6,11 @@ TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 # Sources
-VERILOG_SOURCES += $(SRC_DIR)/rx_serializer.v
+VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
 
 # DUT settings
-TOPLEVEL = rx_serializer
-MODULE = rx_serializer_tb
+TOPLEVEL = clip_round
+MODULE = clip_round_tb
 
 # Cocotb standard rules
 include $(shell cocotb-config --makefiles)/Makefile.sim

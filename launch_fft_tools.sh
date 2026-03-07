@@ -3,8 +3,8 @@ set -euo pipefail
 
 # ------------------------------------------------------------------------------
 # Description:
-#   Syncs 'fft32_parallel' to Docker shared folder.
-#   Skips copying heavy folders (IHP-Open-PDK, librelane) 
+#   Syncs 'parallel_fft16' to Docker shared folder.
+#   Skips copying heavy folders (IHP-Open-PDK, librelane)
 #   if they already exist in the destination.
 #
 # Usage:
@@ -15,7 +15,7 @@ set -euo pipefail
 # CONFIGURATION
 # ==============================================================================
 
-DEFAULT_SRC="/mnt/c/Users/fedef/Documents/Maestria/UNIC-CASS/fft32_parallel"
+DEFAULT_SRC="/mnt/c/Users/fedef/Documents/Maestria/UNIC-CASS/parallel_fft16"
 PROJECT_SRC="${PROJECT_SRC:-$DEFAULT_SRC}"
 
 PARENT_DIR="$(dirname "$PROJECT_SRC")"
@@ -26,10 +26,10 @@ else
 fi
 
 SHARED_DIR="${SHARED_DIR:-$TOOLS_DIR/shared_xserver}"
-DEST_DIR="${DEST_DIR:-$SHARED_DIR/FFT/fft32_parallel}"
+DEST_DIR="${DEST_DIR:-$SHARED_DIR/FFT/parallel_fft16}"
 
 CONTAINER_SHARED_ROOT="/home/designer/shared"
-DEST_IN_CONTAINER="$CONTAINER_SHARED_ROOT/FFT/fft32_parallel"
+DEST_IN_CONTAINER="$CONTAINER_SHARED_ROOT/FFT/parallel_fft16"
 
 START_DOCKER="${START_DOCKER:-1}"
 CLEAN_OLD_CONTAINERS="${CLEAN_OLD_CONTAINERS:-1}"
@@ -105,7 +105,7 @@ cat > "$DEST_DIR/run_librelane.sh" <<'EOF'
 set -euo pipefail
 
 DESIGN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_CONFIG="$DESIGN_DIR/unic_cass_wrapper_user_project/fft32_project/src/config.json"
+DEFAULT_CONFIG="$DESIGN_DIR/unic_cass_wrapper_user_project/fft16_project/src/config.json"
 CONFIG_PATH="${1:-$DEFAULT_CONFIG}"
 
 PDK_NAME="${PDK_NAME:-${PDK:-ihp-sg13g2}}"

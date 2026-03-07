@@ -1,91 +1,213 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge
+import random
 
-# Configuration
-NB_DATA = 8
+CLK_NS         = 20
+NB_DATA        = 8
+N_DATA         = 16
+TIMEOUT_CYCLES = 200
 
-def force_signed_8bit(val):
-    """
-    Convert Python integer to 8-bit signed representation.
-    E.g., 170 (0xAA) -> -86
-    """
-    val = val & 0xFF 
-    if val > 127:
-        val -= 256
-    return val
+
+def to_signed_8(val):
+    val = val & 0xFF
+    return val - 256 if val > 127 else val
+
 
 async def reset_dut(dut):
     dut.i_rst_n.value = 0
-    dut.i_data.value = 0
-    await Timer(20, unit="ns")
+    dut.i_data.value  = 0
+    for _ in range(4):
+        await RisingEdge(dut.i_clk)
     dut.i_rst_n.value = 1
     await RisingEdge(dut.i_clk)
 
+
+async def drive_stream(dut, pairs):
+    """
+    Drives the start bit and then all data bits continuously,
+    exactly one bit per clock cycle, without stopping.
+    """
+    # Start bit
+    dut.i_data.value = 0
+    await RisingEdge(dut.i_clk)
+    dut.i_data.value = 1
+    await RisingEdge(dut.i_clk)
+
+    # Continuous data injection
+    for re_val, im_val in pairs:
+        word = ((re_val & 0xFF) << 8) | (im_val & 0xFF)
+        for i in range(16):
+            dut.i_data.value = (word >> (15 - i)) & 1
+            await RisingEdge(dut.i_clk)
+            
+    # Return to 0 after the batch
+    dut.i_data.value = 0
+
+
+async def monitor_stream(dut, expected_samples):
+    """
+    Passively listens to the bus. Captures output whenever o_valid is 1.
+    Finishes when the expected number of samples is collected.
+    """
+    results = []
+    timeout_cnt = 0
+    MAX_TIMEOUT = TIMEOUT_CYCLES * expected_samples
+
+    while len(results) < expected_samples:
+        await RisingEdge(dut.i_clk)
+        timeout_cnt += 1
+        
+        if dut.o_valid.value == 1:
+            results.append((
+                to_signed_8(int(dut.o_data_re.value)),
+                to_signed_8(int(dut.o_data_im.value))
+            ))
+            
+        assert timeout_cnt < MAX_TIMEOUT, "Timeout: Did not receive all expected samples"
+        
+    return results
+
+
 @cocotb.test()
-async def test_rx_serializer(dut):
-    cocotb.start_soon(Clock(dut.i_clk, 10, unit="ns").start())
+async def test_basic_deserialization(dut):
+    """
+    Sends a full batch of N_DATA known IQ pairs and verifies each is
+    correctly reconstructed by the RX serializer.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
     await reset_dut(dut)
+    cocotb.log.info("--- test_basic_deserialization ---")
 
-    print("--- STARTING RX SERIALIZER TEST ---")
-
-    test_vectors = [
-        (0, 0),
-        (127, -128),
-        (-1, 1),
-        (85, 170),
-        (-50, 50)
+    pairs = [
+        (0,    0   ), (127,  -128), (-1,   1   ), (85,   -86 ),
+        (-50,  50  ), (127,  127 ), (-128, -128), (42,   -42 ),
+        (1,    -1  ), (100,  -100), (0,    127 ), (-128, 0   ),
+        (64,   -64 ), (-64,  64  ), (33,   -33 ), (99,   -99 ),
     ]
 
-    for re_val, im_val in test_vectors:
-        
-        # Normalize expectation to 8-bit signed
-        exp_re = force_signed_8bit(re_val)
-        exp_im = force_signed_8bit(im_val)
+    cocotb.start_soon(drive_stream(dut, pairs))
+    results = await monitor_stream(dut, N_DATA)
 
-        # Prepare 16-bit word (MSB=Real, LSB=Imag)
-        raw_re = re_val & 0xFF
-        raw_im = im_val & 0xFF
-        full_word = (raw_re << 8) | raw_im
-        
-        print(f"Sending: Re={re_val}, Im={im_val} (Word: 0x{full_word:04X})")
+    for idx, ((re_val, im_val), (got_re, got_im)) in enumerate(zip(pairs, results)):
+        exp_re = to_signed_8(re_val)
+        exp_im = to_signed_8(im_val)
+        assert got_re == exp_re and got_im == exp_im, \
+            f"[{idx}] expected ({exp_re},{exp_im}), got ({got_re},{got_im})"
+        cocotb.log.info(f"  [{idx:2d}] Re={got_re:+4d} Im={got_im:+4d}  OK")
 
-        # 1. Ensure IDLE
-        dut.i_data.value = 0
+    cocotb.log.info("test_basic_deserialization PASSED.")
+
+
+@cocotb.test()
+async def test_valid_single_pulse(dut):
+    """
+    Verifies that o_valid is asserted for exactly one clock cycle
+    per received sample across a full batch.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+    cocotb.log.info("--- test_valid_single_pulse ---")
+
+    pairs = [(i, -i) for i in range(N_DATA)]
+    
+    # Drive the stream in the background
+    cocotb.start_soon(drive_stream(dut, pairs))
+    
+    valid_pulse_count = 0
+    consecutive_valids = 0
+    
+    # Monitor for exactly the duration of the transmission + some buffer
+    total_cycles_to_wait = (N_DATA * 2 * NB_DATA) + 10
+    
+    for _ in range(total_cycles_to_wait):
         await RisingEdge(dut.i_clk)
+        if dut.o_valid.value == 1:
+            valid_pulse_count += 1
+            consecutive_valids += 1
+            assert consecutive_valids <= 1, "o_valid was high for more than 1 consecutive cycle!"
+        else:
+            consecutive_valids = 0
 
-        # 2. Generate START BIT (Rising Edge 0->1)
-        dut.i_data.value = 1
-        await RisingEdge(dut.i_clk) 
+    assert valid_pulse_count == N_DATA, \
+        f"Expected exactly {N_DATA} valid pulses, got {valid_pulse_count}"
         
-        # 3. Stream Data Bits (16 bits, MSB first)
-        for i in range(16):
-            bit_idx = 15 - i
-            bit = (full_word >> bit_idx) & 1
-            
-            dut.i_data.value = bit
+    cocotb.log.info(f"o_valid pulsed exactly 1 cycle per sample ({N_DATA} total pulses) OK")
+    cocotb.log.info("test_valid_single_pulse PASSED.")
+
+
+@cocotb.test()
+async def test_consecutive_batches(dut):
+    """
+    Sends two full batches back to back and verifies the FSM resets
+    correctly after N_DATA samples and starts listening for a new start bit.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+    cocotb.log.info("--- test_consecutive_batches ---")
+
+    random.seed(42)
+    MIN_VAL = -(1 << (NB_DATA - 1))
+    MAX_VAL =  (1 << (NB_DATA - 1)) - 1
+
+    for batch_idx in range(2):
+        pairs = [(random.randint(MIN_VAL, MAX_VAL),
+                  random.randint(MIN_VAL, MAX_VAL)) for _ in range(N_DATA)]
+
+        cocotb.start_soon(drive_stream(dut, pairs))
+        results = await monitor_stream(dut, N_DATA)
+
+        for idx, ((re_val, im_val), (got_re, got_im)) in enumerate(zip(pairs, results)):
+            exp_re = to_signed_8(re_val)
+            exp_im = to_signed_8(im_val)
+            assert got_re == exp_re and got_im == exp_im, \
+                f"Batch {batch_idx}[{idx}]: expected ({exp_re},{exp_im}), got ({got_re},{got_im})"
+            cocotb.log.info(f"  Batch {batch_idx}[{idx:2d}] Re={got_re:+4d} Im={got_im:+4d}  OK")
+
+        # Wait a few cycles before next batch to simulate idle time
+        for _ in range(5):
             await RisingEdge(dut.i_clk)
 
-        # 4. Wait for VALID output
-        dut.i_data.value = 0 # Return to IDLE
-        
-        timeout = 10
-        while dut.o_valid.value == 0:
-            await RisingEdge(dut.i_clk)
-            timeout -= 1
-            if timeout == 0:
-                assert False, "Timeout: o_valid never asserted!"
+        cocotb.log.info(f"  Batch {batch_idx} PASSED.")
 
-        # 5. Check Outputs
-        out_re = dut.o_data_re.value.to_signed()
-        out_im = dut.o_data_im.value.to_signed()
-        
-        print(f"Received: Re={out_re}, Im={out_im}")
+    cocotb.log.info("test_consecutive_batches PASSED.")
 
-        assert out_re == exp_re, f"Real Mismatch! Exp: {exp_re}, Got: {out_re}"
-        assert out_im == exp_im, f"Imag Mismatch! Exp: {exp_im}, Got: {out_im}"
 
-        # Wait for FSM to return to IDLE
+@cocotb.test()
+async def test_spurious_then_valid(dut):
+    """
+    Sends a start bit followed by all-zero data (N_DATA samples),
+    then sends a proper batch and verifies correct reception.
+    """
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+    cocotb.log.info("--- test_spurious_then_valid ---")
+
+    # First spurious batch
+    spurious = [(0, 0)] * N_DATA
+    cocotb.start_soon(drive_stream(dut, spurious))
+    results = await monitor_stream(dut, N_DATA)
+
+    for idx, (got_re, got_im) in enumerate(results):
+        assert got_re == 0 and got_im == 0, \
+            f"Spurious[{idx}]: expected (0,0), got ({got_re},{got_im})"
+
+    cocotb.log.info("  Spurious batch received correctly (all zeros)  OK")
+
+    # Idle time
+    for _ in range(5):
         await RisingEdge(dut.i_clk)
 
-    print("TEST PASSED")
+    # Valid batch
+    pairs = [(i * 7 - 64, i * 5 - 40) for i in range(N_DATA)]
+    cocotb.start_soon(drive_stream(dut, pairs))
+    results = await monitor_stream(dut, N_DATA)
+
+    for idx, ((re_val, im_val), (got_re, got_im)) in enumerate(zip(pairs, results)):
+        exp_re = to_signed_8(re_val)
+        exp_im = to_signed_8(im_val)
+        assert got_re == exp_re and got_im == exp_im, \
+            f"[{idx}]: expected ({exp_re},{exp_im}), got ({got_re},{got_im})"
+        cocotb.log.info(f"  [{idx:2d}] Re={got_re:+4d} Im={got_im:+4d}  OK")
+
+    cocotb.log.info("test_spurious_then_valid PASSED.")
