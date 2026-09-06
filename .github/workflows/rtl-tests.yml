@@ -8,40 +8,32 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive # Fetches submodules if your project uses them
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies (Simulator and Cocotb)
+      - name: Install simulator
         run: |
           sudo apt-get update
           sudo apt-get install -y iverilog
-          pip install cocotb pytest fxpmath numpy matplotlib
+
+      - name: Install Python dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Report tool versions
+        run: |
+          iverilog -V | head -1
+          python --version
+          cocotb-config --version
+          pip freeze | grep -Ei '^(cocotb|fxpmath|numpy)='
 
       - name: Run all Cocotb tests
         run: |
-          # Fail the entire workflow immediately if any command fails
-          set -e 
-          
-          echo "Looking for tests in the tests/ directory..."
-          
-          # Iterate over each subdirectory inside tests/
-          for test_dir in tests/*/; do
-            echo "========================================"
-            echo "Running tests in: $test_dir"
-            echo "========================================"
-            
-            # Execute make inside that specific folder
-            make -C "$test_dir"
-          done
-        env:
-          SIM: icarus # Change this to 'verilator' if you are using it instead
+          bash tests/run_all_tests.sh

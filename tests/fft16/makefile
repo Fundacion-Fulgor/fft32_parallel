@@ -3,7 +3,7 @@ SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 
 # Path to source directory
-SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
+SRC_DIR = $(CURDIR)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 # Sources
 VERILOG_SOURCES += $(SRC_DIR)/fft16.v
@@ -23,7 +23,7 @@ VERILOG_SOURCES += $(SRC_DIR)/fft16_shift_r4.v
 
 
 # DUT settings
-export PYTHONPATH := $(PWD)/../../model:$(PYTHONPATH)
+export PYTHONPATH := $(CURDIR)/../../model:$(PYTHONPATH)
 
 TOPLEVEL = fft16
 MODULE = fft16_tb

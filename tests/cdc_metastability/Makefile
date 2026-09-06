@@ -1,7 +1,7 @@
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 
-SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
+SRC_DIR = $(CURDIR)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 # Top level
 VERILOG_SOURCES += $(SRC_DIR)/top_fft16.v
@@ -32,7 +32,7 @@ VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
 VERILOG_SOURCES += $(SRC_DIR)/btfly_2.v
 VERILOG_SOURCES += $(SRC_DIR)/ds_switch.v
 
-export PYTHONPATH := $(PWD)/../../model:$(PYTHONPATH)
+export PYTHONPATH := $(CURDIR)/../../model:$(PYTHONPATH)
 
 TOPLEVEL = top_fft16
 MODULE   = cdc_metastability_tb

@@ -3,7 +3,7 @@ SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 
 # Path to source directory
-SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
+SRC_DIR = $(CURDIR)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 # Sources
 VERILOG_SOURCES += $(SRC_DIR)/fft4_mdc.v

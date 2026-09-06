@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+set -u
+
+cd "$(dirname "$0")"
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
@@ -10,6 +15,9 @@ FAILED_TESTS=()
 
 for dir in */; do
   test_name="${dir%/}"
+  if [ ! -e "$dir/Makefile" ] && [ ! -e "$dir/makefile" ]; then
+    continue
+  fi
   echo -e "\nRunning tests in: ${GREEN}$test_name${NC}"
   echo "-------------------------------------------------"
   if make -C "$dir"; then

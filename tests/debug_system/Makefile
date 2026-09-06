@@ -1,7 +1,7 @@
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 
-SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
+SRC_DIR = $(CURDIR)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 VERILOG_SOURCES += $(SRC_DIR)/debug_system.v
 VERILOG_SOURCES += $(SRC_DIR)/debug_unit.v
