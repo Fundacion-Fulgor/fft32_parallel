@@ -393,6 +393,46 @@ All tests are currently passing.
 | `top_fft16_bringup_tb.py` | bring-up | 13 | ✅ |
 | `cdc_metastability_tb.py` | CDC | 8 | ✅ |
 | **Total** | | **280** | **✅ All passing** |
+| `gls/` (bring-up on the netlist) | gate level | 13 | ✅ (run by hand) |
+
+---
+
+### Gate Level Simulation
+
+`tests/gls/` re-runs the **entire bring-up suite against the synthesised
+netlist** instead of the RTL. There is no second copy of the testbench: the
+Makefile puts `tests/top_fft16_bringup` on `PYTHONPATH` and loads the same
+module, which works because those tests only ever touch the eight top-level
+ports. `gls_top.v` adapts the netlist's `fft16_project` interface
+(`clk_i`, `rst_ni`, `ui_PAD2CORE`, `uo_CORE2PAD`) to the RTL port names.
+
+```bash
+cd tests/gls
+make                          # uses runs/user_project_run by default
+RUN_TAG=my_run make           # or point it at another run
+```
+
+It is **excluded from `run_all_tests.sh`** on purpose, so CI never tries to run
+it: the netlist is a build artefact that is not in the repository. Run it by
+hand after a physical flow. Override with `SKIP_TESTS=""` if you really want it
+in the sweep.
+
+Two things are needed to make the IHP cell models simulate under Icarus, both
+handled by the Makefile:
+
+- The models drive their flip-flops from `delayed_CLK`, `delayed_D` and
+  `delayed_RESET_B`, wires that only the `specify` block produces. Icarus does
+  not implement the delayed-signal outputs of `$setuphold`/`$recrem`, so those
+  wires stay `X` and **every output of the design is `X` forever**.
+  `prepare_models.py` rewrites them as direct aliases of the real ports into a
+  generated copy under `sim_build/`. The PDK is never modified.
+- The simulation is zero-delay. It verifies that the netlist is functionally
+  equivalent to the RTL, not that it meets timing; timing is signed off by STA
+  in the flow. Annotating the SDF would be the next step.
+
+Result: **13/13 passing**, including the bit-exact comparison against
+`model/fft16.py`. The netlist computes the same FFT as the RTL, sample for
+sample.
 
 ---
 
@@ -873,6 +913,9 @@ Write `0x01` to enable FFT mode. Write `0x03` for IFFT mode. Write `0x04` to ass
 
 ## Synthesis Results
 
+Numbers below are the `user_project` macro from the LibreLane Classic flow,
+IHP sg13g2 at `main`, LibreLane 3.1.0.dev3, 50 MHz.
+
 ### Macro — `user_project`
 
 | Metric | Value |
@@ -880,30 +923,60 @@ Write `0x01` to enable FFT mode. Write `0x03` for IFFT mode. Write `0x04` to ass
 | Die bounding box | 678.15 × 697.14 µm |
 | Die area | **0.473 mm²** |
 | Core area | 0.440 mm² |
-| Core utilisation | **75.31%** |
-| Standard cells | 22,805 |
-| Sequential cells | 2,148 |
-| Timing-repair buffers | 4,141 |
-| Total power | 10.42 mW |
+| Core utilisation | **83.46%** |
+| Standard cells | 24,597 |
+| Sequential cells | 2,570 |
+| Timing-repair buffers | 4,991 |
+| Hold buffers | 3,528 |
+| Clock buffers / inverters | 266 / 98 |
+| Fill cells | 13,332 |
+| Routed wirelength | 677,847 µm |
+| Total power | 8.98 mW |
+
+Power splits into 7.70 mW internal, 1.28 mW switching and 8.0 µW leakage.
 
 ### Timing — 50 MHz, all corners
 
-| Corner | Setup WNS | Hold WNS | Violations |
-|---|---|---|---|
-| `nom_slow_1p08V_125C` (worst) | +7.305 ns | +0.104 ns | 0 / 0 |
-| `nom_typ_1p20V_25C` | +9.066 ns | +0.170 ns | 0 / 0 |
-| `nom_fast_1p32V_m40C` | +11.808 ns | +0.188 ns | 0 / 0 |
+| Corner | Setup WNS | Hold WNS | Setup TNS | Hold TNS | Violations |
+|---|---|---|---|---|---|
+| `nom_slow_1p08V_125C` | +8.852 ns | +0.625 ns | 0 | 0 | 0 / 0 |
+| `nom_typ_1p20V_25C` | +11.081 ns | +0.305 ns | 0 | 0 | 0 / 0 |
+| `nom_fast_1p32V_m40C` | +11.312 ns | **+0.115 ns** | 0 | 0 | 0 / 0 |
+
+Worst-case setup slack is +8.85 ns against a 20 ns period, so the block has
+roughly 2× headroom on frequency. The tightest number in the whole run is hold
+slack at the fast corner, +0.115 ns, which is normal after CTS but is the margin
+worth watching. Clock skew stays within ±0.48 ns.
 
 ### Physical Signoff
 
 | Check | Result |
 |---|---|
-| DRC (routing, Magic, KLayout) | ✅ 0 errors |
-| LVS | ✅ 0 errors |
-| Antenna violations | ✅ 0 violations |
-| IR Drop (worst) | 2.71 mV (supply 1.2 V) |
+| DRC — routing | ✅ 0 errors |
+| DRC — Magic | ✅ 0 errors |
+| DRC — KLayout | ✅ 0 errors |
+| Illegal overlap | ✅ 0 |
+| LVS (errors, devices, nets, pins) | ✅ 0 in every category |
+| Antenna violations (nets / pins) | ✅ 0 / 0 |
+| Max slew / max cap violations | ✅ 0 / 0 |
+| Power grid violations (VPWR / VGND) | ✅ 0 / 0 |
+| Worst supply voltage (VPWR) | 1.198 V of 1.2 V |
 | Lint errors | 0 |
 | Inferred latches | 0 |
+
+### A note on max fanout
+
+The run reported 187 max-fanout violations against the previous
+`MAX_FANOUT_CONSTRAINT` of 10. Measuring the netlist directly shows the highest
+fanout in the whole design is **16**, and 184 of those 187 nets are clock-tree
+leaves (`clknet_leaf_*_clk_i`) that CTS builds at that fanout on purpose. Slew
+and capacitance, which are what actually matters electrically, are clean at
+zero violations, so the reports were cosmetic.
+
+The constraint is now set to 24, comfortably above the clock-tree leaf fanout
+and above any data net, while still being a meaningful bound. Raising it means
+synthesis buffers slightly less aggressively, so it is worth re-checking slew
+after the next run.
 
 ### Wrapper — `fft16_project`
 
@@ -915,6 +988,72 @@ Write `0x01` to enable FFT mode. Write `0x03` for IFFT mode. Write `0x04` to ass
 | Macro instances | 1 (`user_project`, 0.473 mm²) |
 | Setup WNS (worst) | +4.758 ns |
 | DRC / LVS / Antenna | ✅ PASS |
+
+---
+
+## Power Analysis
+
+`power/` measures the switching power of the **placed and routed netlist** with
+OpenSTA, driven by real switching activity instead of a default toggle rate.
+
+`power_tb.py` reuses the bring-up helpers (`PYTHONPATH` points at
+`tests/top_fft16_bringup`), so the workload is not a synthetic stimulus: it
+resets the chip, configures it over SPI, then streams four full blocks that are
+**checked against `model/fft16.py` sample by sample**. The numbers therefore
+come from the design doing real work, not from a trace that happens to toggle.
+
+**The configuration window is excluded.** `power_top.v` only calls `$dumpvars`
+when the testbench raises `i_dump_en`, which happens after reset and after the
+last SPI write. The VCD is a single contiguous stretch of streaming — no
+`$dumpoff` gaps, which would otherwise fill the trace with `X` and stretch the
+duration OpenSTA divides by. `rebase_vcd.py` then shifts the trace so its first
+time stamp is zero, so the activity duration is exactly the operating window:
+**2253 clock cycles, 45.06 µs**.
+
+```bash
+cd power
+make power                     # simulate, then report: FFT workload
+make power POWER_MODE=ifft     # same for the inverse transform
+```
+
+Both write **`power/power.rpt`**: a self-contained report with the netlist, the
+corner, the clock, the workload, the measured window and the OpenSTA table. The
+second command overwrites the first, so pass `REPORT=power_ifft.rpt` to keep
+both.
+
+`make power` runs the simulation with cocotb and then the analysis with the
+OpenSTA that ships in the tools image. Those live in different places, so the
+`report` target detects it: if `sta` is on `PATH` it runs directly, otherwise it
+launches the image with the repository bind-mounted. Running `make sim` and
+`make report` in separate environments works too.
+
+### Results — `nom_typ_1p20V_25C`, 1.20 V, 25 °C, 50 MHz
+
+Every pin is annotated from the VCD: **73187 / 73187, none defaulted.**
+
+| Group | Internal | Switching | Leakage | Total | Share |
+|---|---|---|---|---|---|
+| Sequential | 5.63 mW | 3.75 µW | 1.21 µW | **5.63 mW** | 69.3% |
+| Clock | 1.14 mW | 1.25 mW | 3.20 µW | **2.39 mW** | 29.5% |
+| Combinational | 46.1 µW | 45.1 µW | 3.60 µW | **94.8 µW** | 1.2% |
+| Macro / Pad | 0 | 0 | 0 | 0 | 0.0% |
+| **Total** | **6.81 mW** | **1.30 mW** | **8.01 µW** | **8.12 mW** | 100% |
+
+Internal power is 83.9% of the total, switching 16.0%, leakage 0.1% — leakage is
+negligible in 130 nm, as expected.
+
+The IFFT workload lands on the same 8.12 mW (5.63 / 2.39 / 89.8 µW per group):
+the two modes share the entire datapath and differ only in twiddle conjugation
+and in the `clip_round` scaling, so there is no power argument for preferring
+one direction.
+
+**Where the power goes.** 99% of it is the 2570 sequential cells and the clock tree
+that feeds them; the combinational logic contributes 1.2%. That is the direct
+cost of the architecture: a parallel MDC pipeline buys its throughput with
+registers, and at 50 MHz those registers are clocked whether or not data is
+moving. It also says where the savings are — clock gating the pipeline while
+`o_valid` is low would attack roughly 70% of the budget, and is the obvious next
+step if this block ever needs to be power-competitive rather than didactic.
 
 ---
 
@@ -989,6 +1128,45 @@ python model/fft16.py
 Simulation is Icarus Verilog by default; override with `SIM=verilator` if preferred.
 
 > **Note.** These results are functional RTL simulation only. Synthesis, lint, CDC sign-off, static timing and gate-level simulation are run separately in the physical flow and are not covered by this suite.
+
+---
+
+## How to Run the Physical Flow
+
+The flow runs inside the [UNIC-CASS IC design tools](https://github.com/unic-cass/uniccass-icdesign-tools)
+container. Clone that repository as a **sibling** of this one, then:
+
+```bash
+./uniccass_docker.sh                # updates submodules and drops you in a shell
+cd unic_cass_wrapper_user_project
+make fft16_project                  # RTL to GDSII for the user project macro
+```
+
+and for the chip wrapper, once the user project run exists:
+
+```bash
+cd ../unic_cass_wrapper && make
+```
+
+Two properties worth knowing:
+
+- The project is **bind-mounted** at `/home/designer/shared`, so the container
+  always sees the current RTL. Nothing is copied, so there is no way to
+  synthesise a stale tree because you forgot to run a sync step.
+- The container is **kept between sessions** under the name `fft16-tools`.
+  `make fft16_project` builds LibreLane through `nix-shell` the first time,
+  which takes a long while; keeping the container means that happens once
+  rather than on every launch. Use `--fresh` to start over from the image.
+
+The `librelane` and `IHP-Open-PDK` submodules must be kept compatible.
+LibreLane `3.0.0.dev47` and earlier require the PDK variables
+`VDD_PIN_VOLTAGE`, `FP_IO_HLAYER` and `FP_IO_VLAYER`, which current revisions of
+the IHP PDK no longer define. The submodules are pinned to `3.1.0.dev3`, the
+same revision the container ships, and a `main` PDK. The launcher warns if that
+combination is ever broken.
+
+Results land in `unic_cass_wrapper_user_project/<design>/runs/<tag>/`, which is
+gitignored.
 
 ---
 
