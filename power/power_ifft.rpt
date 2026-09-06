@@ -1,0 +1,31 @@
+==============================================================================
+ IFFT power analysis
+==============================================================================
+ Netlist   : fft16_project.nl.v
+ Run tag   : user_project_run
+ Corner    : nom_typ_1p20V_25C
+ Clock     : 50.0 MHz (20 ns period)
+ Workload  : 4 IFFT blocks, each verified against model/fft16.py
+ Activity  : power_ifft.vcd
+ Window    : 45.060 us = 2253 clock cycles
+ Excluded  : power-on reset and the SPI configuration that precede it
+==============================================================================
+
+
+=== reading switching activity from /home/designer/shared/power/sim_build/power_ifft.vcd ===
+Annotated 73187 pin activities.
+vcd         73187
+unannotated     0
+
+=== power over the operating window only ===
+Group                  Internal  Switching    Leakage      Total
+                          Power      Power      Power      Power (Watts)
+----------------------------------------------------------------
+Sequential             5.63e-03   3.47e-06   1.21e-06   5.63e-03  69.4%
+Combinational          4.29e-05   4.32e-05   3.60e-06   8.98e-05   1.1%
+Clock                  1.14e-03   1.25e-03   3.20e-06   2.39e-03  29.5%
+Macro                  0.00e+00   0.00e+00   0.00e+00   0.00e+00   0.0%
+Pad                    0.00e+00   0.00e+00   0.00e+00   0.00e+00   0.0%
+----------------------------------------------------------------
+Total                  6.81e-03   1.30e-03   8.01e-06   8.12e-03 100.0%
+                          83.9%      16.0%       0.1%
