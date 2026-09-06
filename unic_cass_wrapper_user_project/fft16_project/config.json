@@ -6,6 +6,7 @@
     "DESIGN_NAME": "fft16_project",
     "VERILOG_FILES": "dir::src/*.v",
     "CLOCK_PERIOD": 20,
+    "MAX_FANOUT_CONSTRAINT": 24,
     "CLOCK_PORT": "clk_i ui_PAD2CORE[2]",
     "FP_SIZING": "absolute",
     "DIE_AREA": [0, 0, 678.15, 697.14],
