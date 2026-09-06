@@ -16,16 +16,16 @@ def to_signed(val, bits):
 
 
 async def reset_dut(dut):
-    dut.i_rst_n.value  = 0
-    dut.i_clk_en.value = 0
+    dut.i_rstn.value  = 0
+    dut.i_en.value = 0
     dut.i_valid.value  = 0
     for k in range(8):
         getattr(dut, f"i_data{k}_re").value = 0
         getattr(dut, f"i_data{k}_im").value = 0
     for _ in range(4):
         await RisingEdge(dut.i_clk)
-    dut.i_rst_n.value  = 1
-    dut.i_clk_en.value = 1
+    dut.i_rstn.value  = 1
+    dut.i_en.value = 1
     await RisingEdge(dut.i_clk)
 
 
@@ -204,3 +204,188 @@ async def test_consecutive_frame_batches(dut):
         cocotb.log.info(f"  Frame {frame} PASSED.")
 
     cocotb.log.info("test_consecutive_frame_batches PASSED.")
+
+MIN_VAL = -(1 << (NB_DATA - 1))
+MAX_VAL = (1 << (NB_DATA - 1)) - 1
+EXTREMES = [MIN_VAL, MIN_VAL + 1, -1, 0, 1, MAX_VAL - 1, MAX_VAL]
+
+
+async def feed_frame(dut, batch0, batch1):
+    await feed_batch(dut, batch0)
+    await feed_batch(dut, batch1)
+
+
+def assert_frame(results, expected, context=""):
+    assert len(results) == len(expected), (
+        f"{context}expected {len(expected)} samples, got {len(results)}"
+    )
+    for idx, (got, exp) in enumerate(zip(results, expected)):
+        assert got == exp, f"{context}index {idx}: expected {exp}, got {got}"
+
+
+def random_batch(rng):
+    return [
+        (rng.randint(MIN_VAL, MAX_VAL), rng.randint(MIN_VAL, MAX_VAL))
+        for _ in range(8)
+    ]
+
+
+@cocotb.test()
+async def test_extreme_values_end_to_end(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    batch0 = [(EXTREMES[i % 7], EXTREMES[(i * 3) % 7]) for i in range(8)]
+    batch1 = [(EXTREMES[(i * 5) % 7], EXTREMES[(i * 2) % 7]) for i in range(8)]
+
+    await feed_frame(dut, batch0, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+    cocotb.log.info("Full-scale values survive the buffer and serialiser OK")
+
+
+@cocotb.test()
+async def test_all_zero_frame(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await feed_frame(dut, [(0, 0)] * 8, [(0, 0)] * 8)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, [(0, 0)] * 16)
+    cocotb.log.info("An all-zero frame still frames correctly OK")
+
+
+@cocotb.test()
+async def test_all_ones_frame(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await feed_frame(dut, [(-1, -1)] * 8, [(-1, -1)] * 8)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, [(-1, -1)] * 16)
+    cocotb.log.info("An all-ones frame does not confuse the start-bit framing OK")
+
+
+@cocotb.test()
+async def test_many_consecutive_frames(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(131)
+    for frame in range(8):
+        batch0 = random_batch(rng)
+        batch1 = random_batch(rng)
+        await feed_frame(dut, batch0, batch1)
+        results = await capture_serial_output(dut, N_DATA)
+        assert_frame(results, batch0 + batch1, f"frame {frame}: ")
+    cocotb.log.info("8 consecutive frames through buffer and serialiser OK")
+
+
+@cocotb.test()
+async def test_delayed_second_batch(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(132)
+    batch0 = random_batch(rng)
+    batch1 = random_batch(rng)
+
+    await feed_batch(dut, batch0)
+    for _ in range(120):
+        await RisingEdge(dut.i_clk)
+        assert dut.o_data.value == 0, (
+            "nothing may be transmitted before the frame is complete"
+        )
+    await feed_batch(dut, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+    cocotb.log.info("A long gap between the two half-batches is tolerated OK")
+
+
+@cocotb.test()
+async def test_reset_between_frames(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(133)
+    await feed_batch(dut, random_batch(rng))
+    await reset_dut(dut)
+
+    batch0 = random_batch(rng)
+    batch1 = random_batch(rng)
+    await feed_frame(dut, batch0, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+    cocotb.log.info("Reset after a half frame realigns the buffer OK")
+
+
+@cocotb.test()
+async def test_clk_en_gating(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    dut.i_en.value = 0
+    await feed_batch(dut, [(99, -99)] * 8)
+    for _ in range(30):
+        await RisingEdge(dut.i_clk)
+    dut.i_en.value = 1
+    await RisingEdge(dut.i_clk)
+
+    rng = random.Random(134)
+    batch0 = random_batch(rng)
+    batch1 = random_batch(rng)
+    await feed_frame(dut, batch0, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+    cocotb.log.info("Batches fed while i_en was low are ignored OK")
+
+
+@cocotb.test()
+async def test_ready_returns_high_between_frames(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(135)
+    batch0 = random_batch(rng)
+    batch1 = random_batch(rng)
+    await feed_frame(dut, batch0, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+
+    for _ in range(60):
+        await RisingEdge(dut.i_clk)
+        if dut.o_ready.value == 1:
+            break
+    assert dut.o_ready.value == 1, "o_ready must return high after the frame"
+    for _ in range(40):
+        await RisingEdge(dut.i_clk)
+        assert dut.o_data.value == 0, "the line must idle low between frames"
+    cocotb.log.info("The link returns to idle between frames OK")
+
+
+@cocotb.test()
+async def test_alternating_patterns(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    batch0 = [(-86, 85) for _ in range(8)]
+    batch1 = [(85, -86) for _ in range(8)]
+    await feed_frame(dut, batch0, batch1)
+    results = await capture_serial_output(dut, N_DATA)
+    assert_frame(results, batch0 + batch1)
+    cocotb.log.info("Alternating bit patterns survive the serial link OK")
+
+
+@cocotb.test()
+async def test_long_random_run(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(136)
+    for frame in range(15):
+        batch0 = random_batch(rng)
+        batch1 = random_batch(rng)
+        await feed_frame(dut, batch0, batch1)
+        results = await capture_serial_output(dut, N_DATA)
+        assert_frame(results, batch0 + batch1, f"frame {frame}: ")
+    cocotb.log.info("15 random frames, 240 samples total OK")

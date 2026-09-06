@@ -8,7 +8,6 @@ SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
 # Sources
 VERILOG_SOURCES += $(SRC_DIR)/fft16.v
 
-VERILOG_SOURCES += $(SRC_DIR)/complex_multiplier.v
 VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
 VERILOG_SOURCES += $(SRC_DIR)/btfly_2.v
 VERILOG_SOURCES += $(SRC_DIR)/ds_switch.v
@@ -24,6 +23,8 @@ VERILOG_SOURCES += $(SRC_DIR)/fft16_shift_r4.v
 
 
 # DUT settings
+export PYTHONPATH := $(PWD)/../../model:$(PYTHONPATH)
+
 TOPLEVEL = fft16
 MODULE = fft16_tb
 

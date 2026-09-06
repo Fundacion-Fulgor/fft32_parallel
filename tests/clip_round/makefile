@@ -7,9 +7,10 @@ SRC_DIR = $(PWD)/../../unic_cass_wrapper_user_project/fft16_project/src
 
 # Sources
 VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
+VERILOG_SOURCES += $(PWD)/clip_round_cfg.v
 
 # DUT settings
-TOPLEVEL = clip_round
+TOPLEVEL = clip_round_cfg
 MODULE = clip_round_tb
 
 # Cocotb standard rules

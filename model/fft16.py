@@ -1,6 +1,5 @@
 import numpy as np
 from fxpmath import Fxp
-import matplotlib.pyplot as plt
 
 class ROUND:
     def __init__(self, rounding='floor'):
@@ -228,6 +227,8 @@ import numpy as np
 
 
 def test_fft16():
+    import matplotlib.pyplot as plt
+
     print("--- FFT16 verification ---")
     
     N = 16
@@ -266,7 +267,7 @@ def test_fft16():
     ax_in.grid(True)
 
     plt.tight_layout()
-    plt.savefig("input_fft16.png")
+    plt.savefig("input_fft16.pdf")
     plt.close(fig_in)
 
     # =========================================================
@@ -316,7 +317,7 @@ def test_fft16():
     axs[1].set_xticks(freq_bins)
     axs[1].grid(True)
 
-    plt.savefig("result_fft16.png")
+    plt.savefig("result_fft16.pdf")
     plt.close()
     
     # =========================================================
@@ -363,7 +364,9 @@ def test_fft16():
     axs_recon[1].grid(True)
 
     plt.tight_layout()
-    plt.savefig("result_ifft16.png")
+    plt.savefig("result_ifft16.pdf")
     plt.close(fig_recon)
 
-test_fft16()
+
+if __name__ == "__main__":
+    test_fft16()

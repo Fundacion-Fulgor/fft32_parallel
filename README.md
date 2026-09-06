@@ -1,4 +1,4 @@
-# parallel_fft16 — 16-Point Parallel FFT/IFFT Processor
+# parallel_fft16:  16-Point Parallel FFT/IFFT Processor
 ### UNIC-CASS 2025 Tapeout Submission · IHP SG13G2 130 nm PDK
 
 **Authors:**
@@ -16,7 +16,7 @@
 
 ---
 
-## ⚠️ Design Scaling Notice — FFT32 → FFT16
+## ⚠️ Design Scaling Notice: FFT32 → FFT16
 
 This submission is a **scaled-down redesign** of a previous FFT32 processor submitted to the same program. The prior submission received feedback indicating that the projected die area exceeded the available silicon budget within UNIC-CASS 2025. In response, the transform size was reduced from 32 to 16 points and the architecture was restructured accordingly.
 
@@ -96,7 +96,7 @@ flowchart TD
 
 ---
 
-## Algorithm — Parallel Mixed-Radix FFT
+## Algorithm: Parallel Mixed-Radix FFT
 
 This section describes the mathematical basis of the parallel architecture, following the formulation by Palmer & Nelson (FPL 2004). The central idea is to decompose the N-point DFT into four independent sub-DFTs of length N/4, which can then be computed by four parallel pipelines fed by a common Radix-4 front-end.
 
@@ -252,58 +252,70 @@ flowchart TD
 | `fft4_mdc` | Radix-2 MDC butterfly unit — ×4 instances |
 | `fft4_mdc_stage1` | First butterfly stage + ±j rotation (FFT/IFFT selection) |
 | `fft4_mdc_stage2` | Second butterfly stage |
-| `fft4_mul` | Complex multiplier with dual `clip_round` paths (FFT / IFFT) |
+| `fft4_mul` | Twiddle multiplier with rounding and saturation |
 | `btfly_2` | Radix-2 butterfly (purely combinatorial) |
 | `ds_switch` | Data switch / commutator for MDC staging |
-| `clip_round` | Parametric saturation + truncation/rounding |
-| `complex_multiplier` | Generic complex multiplier |
+| `clip_round` | Parametric saturation + truncation or round-to-nearest-even |
 | `buffer_parallel2serial` | Double-buffer FSM: 8 parallel complex → serialised stream |
 | `rx_serializer` | Serial-to-parallel: start-bit detection, 16 samples per batch |
 | `tx_serializer` | Parallel-to-serial output with start-bit framing |
 | `debug_system` | SPI slave + debug unit wrapper |
 | `spi_slave_mode0` | SPI Mode 0 (CPOL=0, CPHA=0), 16-bit frame [RW\|ADDR7\|DATA8] |
 | `debug_unit` | Register map + CDC snapshot + `sys_config` write |
-| `cdc_snapshot` | Double-flop synchroniser + snapshot on SS_N falling edge |
+| `cdc_snapshot` | Three-flop synchroniser + snapshot on SS_N falling edge |
 
 ---
 
 ## High-Level Python Model
 
-A **bit-accurate Python reference model** was developed alongside the RTL (`sim/fft16.py`, `sim/model_fft4.py`). It replicates the fixed-point arithmetic of every pipeline stage — twiddle factor quantisation, saturation, and truncation/rounding — using the `fxpmath` library.
+`model/fft16.py` is the **golden reference** for this design. It replicates the fixed-point arithmetic of every pipeline stage — twiddle quantisation, saturation and rounding — using the `fxpmath` library, and the RTL is required to match it **bit for bit**, not within a tolerance.
+
+The testbenches import it directly, through `export PYTHONPATH := $(PWD)/../../model` in the suite Makefiles. There is deliberately no second copy: earlier copies kept under `tests/` had silently drifted from the golden model and were removed.
 
 ### Fixed-Point Pipeline
 
-| Stage | FFT format | IFFT format | Notes |
-|---|---|---|---|
-| Input | Q(8,6) | Q(8,3) | 8-bit signed |
-| After Radix-4 butterfly | Q(10,6) | Q(10,3) | +2 guard bits |
-| Twiddle factors | Q(10,9) | Q(10,9) | Embedded LUT |
-| After twiddle multiply | Q(10,6) | Q(10,3) | |
-| After MDC butterfly | Q(10,6) | Q(10,3) | |
-| Output | Q(8,3) | Q(8,6) | Saturated |
+| Stage | FFT format | IFFT format | Rounding | Notes |
+|---|---|---|---|---|
+| Input | Q(8,6) | Q(8,3) | — | 8-bit signed |
+| After Radix-4 butterfly | Q(10,6) | Q(10,3) | exact | +2 guard bits, no bits discarded |
+| Twiddle factors | Q(10,9) | Q(10,9) | nearest-even | Embedded LUT |
+| After twiddle multiply | Q(10,6) | Q(10,3) | **nearest-even** | `clip_round` `RND_MD = 1` |
+| After MDC butterfly | Q(10,6) | Q(10,3) | exact | +2 guard bits |
+| Output | Q(8,3) | Q(8,6) | **nearest-even** | `clip_round` `RND_MD = 1`, saturating |
+
+Both rounding points discard fractional bits with **round to nearest, ties to even**, matching `fxpmath`'s `'around'` mode used by the golden model. In hardware this costs one adder whose carry-in is the LSB of the truncated result:
+
+```verilog
+localparam [NB_INP:0] RND_BIAS = (BITS_DIS > 0) ? ((1 << BITS_DIS) / 2 - 1) : 0;
+sum = {i_data[NB_INP-1], i_data} + RND_BIAS + i_data[BITS_DIS];
+```
+
+Adding `2^(k-1) - 1` plus the LSB of the truncated result resolves ties to the even neighbour without any explicit tie-detection logic.
 
 The **IFFT 1/N normalisation** is implicit: in IFFT mode `clip_round` uses `NBF_OUT = NBF_MDC + 4`, which adds 4 fractional bits relative to the FFT output path, equivalent to dividing by $2^4 = 16 = N$.
 
 ### Validation Against NumPy
 
-The model was validated against `numpy.fft.fft` / `numpy.fft.ifft` across random complex Q(8,6) input vectors. Three plots are produced by `sim/fft16.py` to document the validation.
+The model was validated against `numpy.fft.fft` / `numpy.fft.ifft` across random complex Q(8,6) input vectors. Three plots are produced by running `python model/fft16.py` to document the validation.
 
 **Input signal (time domain)**
 
-![Fixed-point input signal — real and imaginary parts](docs/img/input_fft16.png)
+![Fixed-point input signal: real and imaginary parts](docs/img/input_fft16.png)
 *Random complex input vector quantised to Q(8,6). Real and imaginary parts shown as stem plots over the 16 sample indices.*
 
-**FFT output — fixed-point model vs NumPy reference**
+**FFT output: fixed-point model vs NumPy reference**
 
 ![FFT16 fixed-point vs NumPy: magnitude and error](docs/img/result_fft16.png)
 *Top: magnitude spectrum |X(k)| for the NumPy floating-point reference (blue) and the FFT16 fixed-point model (red). Bottom: per-bin error in dB between the two. The maximum absolute error is printed to stdout by the script.*
 
-**IFFT reconstruction — original signal vs IFFT output**
+**IFFT reconstruction: original signal vs IFFT output**
 
 ![IFFT16 reconstruction: original vs IFFT output and reconstruction error](docs/img/result_ifft16.png)
 *Top: original time-domain signal (blue) overlaid with the IFFT output after a full FFT → IFFT round-trip (red). Bottom: per-sample reconstruction error in dB. The SNR between the fixed-point model and the floating-point reference exceeds **20 dB** in both FFT and IFFT modes.*
 
-The model is used as the **golden reference** in all cocotb testbenches — RTL outputs are compared sample-by-sample with tolerance `ε < 1e-9`.
+`model/fft16.py` is importable as a library (`from fft16 import FFT16`); running it as a script regenerates the three plots above.
+
+All cocotb testbenches compare RTL outputs against this model **bit-exactly**. Sub-block suites additionally use integer models that reproduce the RTL arithmetic exactly (`tests/clip_round/model_clip_round.py`, `tests/fft4_mul/model_fft4_mul.py`, `tests/fft4_radix4/model_fft4_radix4.py`); those are themselves cross-checked against the golden `ROUND` class over exhaustive sweeps.
 
 ---
 
@@ -314,173 +326,510 @@ The model is used as the **golden reference** in all cocotb testbenches — RTL 
 ```mermaid
 flowchart LR
     U["Unit level
-    Each module in isolation
-    vs behavioural spec
-    or Python model"]:::green
+    Every module in isolation
+    exhaustive where the
+    input space allows"]:::green
     I["Integration level
     fft16_tb.py
     Internal pipeline nodes
     probed per stage"]:::yellow
     S["System level
     top_fft16_tb.py
-    External interface only
+    External pins only
     serial I/O + SPI"]:::blue
+    B["Bring-up level
+    top_fft16_bringup_tb.py
+    Scripted power-on to
+    steady-state sessions"]:::purple
+    C["CDC level
+    cdc_metastability_tb.py
+    Phase sweeps and forced
+    synchroniser resolutions"]:::red
 
-    U --> I --> S
+    U --> I --> S --> B
+    S --> C
 
     classDef green  fill:#e8f5e9,stroke:#388e3c,color:#000
     classDef yellow fill:#fff9c4,stroke:#f9a825,color:#000
     classDef blue   fill:#e3f2fd,stroke:#1565c0,color:#000
+    classDef purple fill:#f3e5f5,stroke:#7b1fa2,color:#000
+    classDef red    fill:#ffebee,stroke:#c62828,color:#000
 ```
 
-- **Unit level** — each module exercised in isolation against its behavioural specification (I/O protocol modules) or the Python model (arithmetic modules).
-- **Integration level** — `fft16_tb.py` monitors internal pipeline signals (`fft4_valid`, `mdc_ffx_valid`, `rnd_mdc*`, `rnd_ifft*`) to confirm correctness at every stage before checking the final output.
-- **System level** — `top_fft16_tb.py` drives the design exclusively through its external pins (serial data + SPI), replicating the exact protocol a real system would use.
+- **Unit level** — every RTL module has its own suite, including the leaf cells. Where the input space is small enough the sweep is genuinely exhaustive: all 65 536 operand pairs of `btfly_2`, the full input range of `clip_round` in its narrow configurations, all 256 values of `cdc_snapshot`, and all 128 addresses and 256 data values of `spi_slave_mode0`.
+- **Integration level** — `fft16_tb.py` probes internal pipeline nodes (`fft4_valid`, `mdc_ffx_valid`, `rnd_mdc*`, `rnd_ifft*`) to confirm correctness at every stage before checking the final output.
+- **System level** — `top_fft16_tb.py` drives the design exclusively through its external pins, replicating the exact protocol a real system would use.
+- **Bring-up level** — `top_fft16_bringup_tb.py` runs long scripted sessions from power-on reset through steady-state streaming, checking the datapath and every debug register at each step. These are written to double as a bring-up procedure for silicon.
+- **CDC level** — `cdc_metastability_tb.py` characterises the SPI-to-system clock domain crossing and measures its timing limits.
+
+**Reference model layering.** Arithmetic blocks are checked against integer models that reproduce the RTL bit for bit; the FFT core and the chip top are checked against `model/fft16.py`. Structural stimuli (DC, impulse, single tones) additionally assert DSP-level properties — peak bin location, leakage floor, flat spectrum — that hold independently of any model.
+
+**Metastability.** RTL simulation cannot reproduce metastability itself. What the CDC suite proves is that the design tolerates **either resolution** of a synchroniser first stage, which is the only thing a synchroniser guarantees. This is covered two ways: sweeping the asynchronous edge across every sub-cycle phase of the system clock, and forcing the first synchroniser stage to the opposite value for one cycle with `cocotb.handle.Force`.
 
 ---
 
 All tests are currently passing.
 
-| Suite | Tests | Status |
-|---|---|---|
-| `rx_serializer_tb.py` | 4 | ✅ |
-| `tx_serializer_tb.py` | 5 | ✅ |
-| `buffer_parallel2serial_tb.py` | 4 | ✅ |
-| `buffer_tx_tb.py` | 4 | ✅ |
-| `fft16_shift_r4_tb.py` | 1 | ✅ |
-| `fft16_shift_r2_tb.py` | 1 | ✅ |
-| `fft4_mdc_tb.py` | 1 | ✅ |
-| `fft16_tb.py` | 2 | ✅ |
-| `debug_unit_tb.py` | 7 | ✅ |
-| `debug_system_tb.py` | 5 | ✅ |
-| `top_fft16_tb.py` | 13 | ✅ |
-| **Total** | **47** | **✅ All passing** |
+| Suite | Level | Tests | Status |
+|---|---|---|---|
+| `btfly_2_tb.py` | unit | 8 | ✅ |
+| `clip_round_tb.py` | unit | 11 | ✅ |
+| `ds_switch_tb.py` | unit | 12 | ✅ |
+| `cdc_snapshot_tb.py` | unit | 10 | ✅ |
+| `fft4_mul_tb.py` | unit | 13 | ✅ |
+| `fft4_mdc_tb.py` | unit | 13 | ✅ |
+| `fft4_radix4_tb.py` | unit | 16 | ✅ |
+| `fft16_shift_r4_tb.py` | unit | 12 | ✅ |
+| `fft16_shift_r2_tb.py` | unit | 12 | ✅ |
+| `buffer_parallel2serial_tb.py` | unit | 15 | ✅ |
+| `rx_serializer_tb.py` | unit | 15 | ✅ |
+| `tx_serializer_tb.py` | unit | 16 | ✅ |
+| `spi_slave_mode0_tb.py` | unit | 16 | ✅ |
+| `debug_unit_tb.py` | unit | 18 | ✅ |
+| `buffer_tx_tb.py` | integration | 14 | ✅ |
+| `debug_system_tb.py` | integration | 17 | ✅ |
+| `fft16_tb.py` | integration | 13 | ✅ |
+| `top_fft16_tb.py` | system | 28 | ✅ |
+| `top_fft16_bringup_tb.py` | bring-up | 13 | ✅ |
+| `cdc_metastability_tb.py` | CDC | 8 | ✅ |
+| **Total** | | **280** | **✅ All passing** |
+
+---
+
+### Characterisation and Operating Limits
+
+Numbers measured in simulation at the nominal 50 MHz system clock. They are the constraints a driver has to respect, and are pinned by regression tests so they cannot silently regress.
+
+#### Block pacing
+
+| Quantity | Value |
+|---|---|
+| Input frame | 258 clocks (1 idle + 1 start bit + 16 × 16 bits) |
+| Output readout | 274 clocks |
+| Deficit per block | 16 clocks |
+| Minimum gap, single pair of blocks | 18 clocks (zero margin) |
+| **Qualified sustained gap** | **32 clocks** |
+
+The chip consumes a block faster than it can emit one, and there is no back-pressure toward the host — a deliberate trade-off given the area and pin budget. If a load pulse arrives while `buffer_parallel2serial` is still reading out, `i_valid` is ignored, `batch_count` desynchronises, and every later frame is wrong until a reset. **The failure is silent and permanent, so the host must leave at least 32 idle clocks between blocks.** Verified over 40 consecutive blocks at 32 clocks; at 30 clocks the margin erodes and corruption appears around block 14.
+
+#### SPI debug port across the clock domain crossing
+
+| Quantity | Limit | Nominal | Margin |
+|---|---|---|---|
+| `sclk` half period for a fresh snapshot | 3 ns (~167 MHz) | 50 ns (10 MHz) | ~13× |
+| `ss_n` high between frames | 20 ns (1 system clock) | — | design to **60 ns** (3 clocks) |
+
+Above roughly 167 MHz the 8-bit header finishes before the snapshot has crossed the three-flop synchroniser and the read returns **the previous frame's value** — a plausible-looking stale number rather than a loud failure. Below one system clock of `ss_n` high time the write is **silently lost**; 60 ns commits reliably at every sub-cycle phase.
+
+Every read frame drops `ss_n` and therefore arms a fresh snapshot, so several registers read in different frames come from different instants. There is no atomic multi-register view.
+
+#### Behaviours that look like defects but are not
+
+| Observation | Explanation |
+|---|---|
+| `status_flags` reads `0x04` after reset, not `0x00` | Bit 2 is `tx_ready`, high whenever the transmitter is idle |
+| `mid_data_re` is undefined before any data arrives | It probes `fft16_shift_r4`, whose 208-flop delay line deliberately carries no reset |
+| Enabling the core does not clear the counters | The receiver counts inputs even while the core is gated off; only a reset clears them |
+| A full-scale single tone saturates its bin | 16-point coherent gain is 16×, and the output is Q(8,3), so the usable single-tone amplitude is about half scale. `error_flags[0]` latching is the intended report |
+| Switching FFT ↔ IFFT needs no reset | The pipeline drains between blocks, so a plain `sys_config` write at a block boundary is enough |
 
 ---
 
 ### Test Plan
 
-#### `rx_serializer_tb.py` — module: `rx_serializer`
+#### Unit level — arithmetic and datapath blocks
+
+##### `btfly_2_tb.py` — btfly_2
 
 | Test | Scope |
 |---|---|
-| `test_basic_deserialization` | Drives 16 known IQ pairs with proper start-bit framing. Reconstructs each sample from `o_data` and `o_valid` and verifies both re and im bytes match the expected signed 8-bit values exactly. |
-| `test_valid_single_pulse` | Monitors `o_valid` across an entire batch transmission. Asserts it is high for exactly one clock cycle per sample — no double-pulses, no missed pulses. |
-| `test_consecutive_batches` | Sends two back-to-back batches with random data separated by a single idle cycle. Verifies the FSM re-arms correctly after each batch and no sample is lost at the boundary. |
-| `test_spurious_then_valid` | Sends an all-zero batch followed by a valid batch. Verifies both batches are received correctly and the FSM does not conflate the two. |
+| `test_exhaustive_real_pair` | Sweeps all 256 x 256 real operand pairs and checks both the sum and the difference output against exact integer arithmetic. |
+| `test_exhaustive_imag_pair` | Same exhaustive sweep on the imaginary path. |
+| `test_all_corner_combinations` | All 9^4 = 6561 combinations of the extreme and near-extreme values across the four inputs. |
+| `test_random_vectors` | 5000 random 4-tuples checked against exact arithmetic. |
+| `test_no_output_overflow` | Confirms the widened 9-bit output can never overflow, over corners plus 2000 random vectors. |
+| `test_paths_independent` | Verifies the real outputs do not depend on the imaginary inputs and vice versa. |
+| `test_butterfly_identities` | Checks sum+diff = 2a, sum-diff = 2b, commutativity of the sum and negation of the difference when the inputs are swapped. |
+| `test_zero_inputs` | Zero inputs give zero outputs; a single non-zero input passes through unchanged. |
 
----
-
-#### `tx_serializer_tb.py` — module: `tx_serializer`
-
-| Test | Scope |
-|---|---|
-| `test_basic_serialization` | Feeds 16 IQ pairs and reconstructs each 16-bit word from the serial `o_data` stream, comparing against `{re[7:0], im[7:0]}` for every sample. |
-| `test_start_bit_only_on_first` | Verifies the start bit (`o_data = 1` before the first data bit) appears only on the first sample of the batch, not on samples 1–15. |
-| `test_ready_deasserts_during_tx` | Checks that `o_ready` goes low immediately after `i_valid` is accepted and returns high only after all bits of that sample have been transmitted. |
-| `test_consecutive_batches` | Sends two full 16-sample batches back to back. Verifies each produces an independently framed serial output with its own start bit and no dropped samples at the boundary. |
-| `test_data_ignored_when_busy` | Asserts `i_valid` with new data while a previous transmission is still in progress. Verifies the ongoing output is not corrupted and the new input is silently discarded. |
-
----
-
-#### `buffer_parallel2serial_tb.py` — module: `buffer_parallel2serial`
+##### `clip_round_tb.py` — clip_round (9 configurations via `clip_round_cfg.v`)
 
 | Test | Scope |
 |---|---|
-| `test_basic_ordering` | Feeds two batches of 8 IQ pairs, collects all 16 outputs via the `i_tx_ready` / `o_valid` handshake, and verifies the flat output order is batch0[0..7] followed by batch1[0..7] with no reordering. |
-| `test_backpressure` | Receiver holds busy for 5 cycles after each sample. Verifies the FSM stalls in `S_WAIT_BSY` and no sample is dropped or reordered under sustained backpressure. |
-| `test_delayed_ready` | Both batches are fed before `i_tx_ready` is ever asserted. After a 20-cycle delay, collection begins. Verifies `S_WAIT_RDY` holds the data intact and no sample is lost. |
-| `test_random` | Random signed 8-bit re/im values across two batches, random busy duration between 2 and 8 cycles per sample. Verifies end-to-end ordering is preserved under unpredictable backpressure patterns. |
+| `test_exhaustive_small_configs` | Full input-range sweep of the four narrow configurations, every value compared against the bit-exact model. |
+| `test_saturation_boundaries` | Values clustered around the saturation thresholds, the format extremes and every multiple of the discarded-bit step. |
+| `test_saturation_clamps_extremes` | Maximum and minimum inputs clamp to the output extremes wherever the format requires it. |
+| `test_output_within_range` | 300 random values per configuration always land inside the output word. |
+| `test_quantisation_error_bound` | Error never exceeds 1 LSB for truncation or 1/2 LSB for rounding, over 300 random values per configuration. |
+| `test_monotonicity` | Output is non-decreasing across the full input range for every narrow configuration. |
+| `test_zero_and_sign_symmetry` | Zero maps to zero and representable magnitudes negate exactly. |
+| `test_re_im_paths_independent` | The real and imaginary paths do not influence each other. |
+| `test_against_golden_model` | 400 random values per configuration compared against the golden `ROUND` class from `model/fft16.py`. |
+| `test_ties_round_to_even` | Every exact tie in range is compared against the golden model, and rounding-mode results are additionally asserted to be even. |
+| `test_ties_follow_the_even_rule` | Asserts the closed-form invariant `out == truncated + (truncated & 1)` on every tie, and that ties alternate up and down with no systematic bias. |
 
----
-
-#### `buffer_tx_tb.py` — modules: `buffer_parallel2serial` + `tx_serializer`
-
-| Test | Scope |
-|---|---|
-| `test_basic_integration` | Feeds two 8-sample batches through both modules end-to-end. Reconstructs the serial output from `o_data` and verifies all 16 samples arrive in order and match the input values. |
-| `test_start_bit_framing` | Verifies the start bit appears at the correct bit position in the combined serial output stream for the first sample of the 16-sample frame. |
-| `test_random_data` | Random signed 8-bit re/im values across two batches. Verifies end-to-end ordering is preserved through the full parallel-to-serial conversion path. |
-| `test_consecutive_frame_batches` | Sends two complete 16-sample frames back to back. Verifies each produces a properly framed serial output with an independent start bit and no inter-frame corruption. |
-
----
-
-#### `fft16_shift_r4_tb.py` — module: `fft16_shift_r4`
+##### `ds_switch_tb.py` — ds_switch
 
 | Test | Scope |
 |---|---|
-| `test_fft16_shift_r4` | Injects 16 samples with gapped valid pulses (one active every 8 cycles). When `o_valid` is asserted, verifies the four output taps carry the correct delayed samples: `o_data0` at delay 13, `o_data1` at delay 9, `o_data2` at delay 5, `o_data3` at delay 1 — all relative to the most recent valid input. Verifies valid gating: outputs do not update between valid pulses. |
+| `test_single_block_commutation` | One pair of input pairs is re-paired correctly on the output. |
+| `test_many_consecutive_blocks` | 32 consecutive blocks without a reset, exercising the fix for the counter latch-up. |
+| `test_no_stall_after_first_block` | Each of 8 blocks in turn still produces exactly two output pulses. |
+| `test_varying_gaps` | Input spacings of 1, 2, 3, 5, 7, 11 and 20 idle cycles. |
+| `test_valid_pulse_count` | Exactly two output pulses per block over 10 blocks, with no extras during the trailing idle. |
+| `test_idle_produces_no_output` | `o_valid` stays low for 200 cycles with no input. |
+| `test_single_valid_waits_for_partner` | A half-filled switch emits nothing until its partner pair arrives. |
+| `test_reset_midstream` | A reset after a half-delivered block realigns the write and read phases. |
+| `test_extreme_values` | 36 blocks built from the format extremes. |
+| `test_output_holds_between_pulses` | Output data is stable and `o_valid` low between bursts. |
+| `test_minimum_valid_spacing` | 16 blocks at the tightest supported rate of one valid every two cycles. |
+| `test_back_to_back_valid_is_out_of_spec` | Documents that a continuous `i_valid` overruns the four-word storage; the switch keeps pulsing but the data is not the commutated pair. |
 
----
-
-#### `fft16_shift_r2_tb.py` — module: `fft16_shift_r2`
-
-| Test | Scope |
-|---|---|
-| `test_fft16_shift_r2` | Injects 16 samples with gapped valid pulses (one active every 8 cycles). When `o_valid` is asserted, verifies `o_data0` holds the sample at delay 3 and `o_data1` holds the sample at delay 1, both relative to the most recent valid input. Verifies valid gating between pulses. |
-
----
-
-#### `fft4_mdc_tb.py` — module: `fft4_mdc`
-
-| Test | Scope |
-|---|---|
-| `test_fft4_mdc_debug` | Drives one set of 4 complex inputs through the MDC unit with `i_inverse = 0` (FFT) and then `i_inverse = 1` (IFFT). Captures stage 1 output (`u_fft4_mdc_stage1.o_valid`) and stage 2 output (`o_valid`) separately for each mode. Compares both stages against the `FFT4_Reference` Python model. Tolerance: 1 LSB at Q(8,6) resolution. |
-
----
-
-#### `fft16_tb.py` — module: `fft16`
+##### `cdc_snapshot_tb.py` — cdc_snapshot
 
 | Test | Scope |
 |---|---|
-| `test_fft16_fft` | Forward FFT: `i_inverse = 0`, input Q(8,6), output Q(8,3). Injects 16 random complex samples with gapped valid pulses. Probes and compares four internal checkpoints against the `FFT16` Python model: (1) Radix-4 stage output at `fft4_valid`, (2) MDC pre-clip output at `mdc_ffx_valid`, (3) clip_round output `rnd_mdc*`, (4) final buffer output through `tx_serializer` model. Each checkpoint compared with ε < 1e-9. |
-| `test_fft16_ifft` | Inverse FFT: `i_inverse = 1`, input Q(8,3), output Q(8,6). Same four-checkpoint procedure as the FFT test but using the IFFT model path. Captures `rnd_ifft*` signals for the clip_round stage. Verifies the implicit 1/N normalisation is correctly applied through the output format alone. |
+| `test_reset_clears_output` | The snapshot register resets to zero and re-clears on a later reset. |
+| `test_capture_on_falling_edge` | Eight representative values captured on successive trigger falling edges. |
+| `test_exhaustive_values` | All 256 data values captured correctly. |
+| `test_output_frozen_while_input_changes` | The snapshot holds while `data_in` changes for 50 cycles. |
+| `test_no_capture_on_rising_edge` | A rising trigger edge never captures. |
+| `test_synchroniser_latency` | The capture lands exactly three clocks after the trigger falls, matching the three-flop chain. |
+| `test_data_sampled_at_capture_time` | The value captured is the one present when the synchronised pulse fires, not when the trigger fell. |
+| `test_repeated_triggers` | 100 capture cycles with randomised settling times. |
+| `test_async_trigger_offset_from_clock` | 40 trigger edges placed at random sub-cycle offsets from the clock. |
+| `test_short_trigger_pulse` | A one-cycle trigger pulse still captures. |
 
----
-
-#### `debug_unit_tb.py` — module: `debug_unit`
-
-| Test | Scope |
-|---|---|
-| `test_sys_config_write` | Issues write transactions for all 8 possible values of `sys_config` (0b000 through 0b111). After each write, reads `dut.sys_config` directly and confirms the register updated to the written value. |
-| `test_sys_config_readback` | Writes three distinct values to `sys_config` and reads each back via `spi_rdata` at address `0x10`. Verifies the read multiplexer returns the correct value at the `sys_config` address. |
-| `test_status_snapshot` | Sets known values on all 7 probe inputs, triggers a CDC snapshot by asserting `spi_ss_n`, then reads each register address and verifies the frozen value matches the state at snapshot time. |
-| `test_cdc_snapshot_freeze` | Triggers a snapshot, then modifies all probe inputs while `spi_ss_n` remains asserted. Reads all registers after `spi_ss_n` de-asserts and verifies the snapshot still holds the original pre-change values, not the updated ones. |
-| `test_cdc_snapshot_update` | Takes two consecutive snapshots with different probe values between them. Verifies the first snapshot holds the first set and the second snapshot holds the updated set independently. |
-| `test_default_address` | Reads from four unmapped addresses (0x07, 0x0F, 0x11, 0x7F). Verifies `spi_rdata` returns `0x00` for each, confirming the read multiplexer defaults to zero for undefined addresses. |
-| `test_random_snapshot` | Over 8 random iterations: sets random probe values, triggers a snapshot, randomises all probe inputs, then reads all 7 status registers and verifies each matches the value captured at snapshot time. |
-
----
-
-#### `debug_system_tb.py` — module: `debug_system`
+##### `fft4_mul_tb.py` — fft4_mul
 
 | Test | Scope |
 |---|---|
-| `test_spi_write_sys_config` | Drives complete real 16-bit SPI frames (CPOL=0, CPHA=0) for all 8 `sys_config` values. Verifies the `sys_config` output port updates correctly after SS_N de-asserts at the end of each frame. |
-| `test_spi_read_status_register` | Sets known values on all probe inputs, issues SPI READ frames for each of the 7 status register addresses, and verifies the byte clocked out on MISO matches the expected register content. |
-| `test_spi_read_sys_config` | Writes four values to `sys_config` via SPI WRITE frames, then reads back each via SPI READ at address `0x10`. Verifies the MISO byte matches the previously written value in every case. |
-| `test_cdc_snapshot_timing` | Pulls SS_N low and waits 5 system clock cycles for the snapshot pulse to propagate through the double-flop synchroniser. Changes all probe inputs while SS_N is still asserted. Clocks out a full READ frame and verifies MISO returns the frozen pre-change value. Issues a second READ after a new SS_N pulse and verifies it now captures the updated values. |
-| `test_random_rw` | Over 6 random iterations: sets random probe values, issues an SPI READ for each status register and verifies MISO, then writes a random `sys_config` value via SPI WRITE and verifies the output port. |
+| `test_multiply_by_unity` | A unity twiddle preserves the data across the input range. |
+| `test_multiply_by_minus_j` | Multiplication by -j checked against the bit-exact model. |
+| `test_multiply_by_plus_j` | Multiplication by +j. |
+| `test_multiply_by_minus_one` | Multiplication by -1 negates the operand. |
+| `test_zero_data_and_zero_twiddle` | Either operand zero gives a zero product. |
+| `test_fft16_twiddle_set` | All 16 FFT16 twiddles in both rotation directions, swept over the input range. |
+| `test_random_vectors` | 6000 random operand and twiddle pairs, bit-exact. |
+| `test_extreme_operands_saturate` | All 2401 combinations of the extreme operands; outputs stay in range and saturate where required. |
+| `test_unit_gain_twiddles` | A unit-magnitude twiddle preserves the vector length within quantisation error. |
+| `test_rotation_direction` | The measured output angle matches the twiddle index and sign. |
+| `test_pipeline_latency` | The output updates exactly two clocks after the input. |
+| `test_enable_gating` | The pipeline registers hold their value while `i_en` is low. |
+| `test_streaming_back_to_back` | 200 samples issued on consecutive clocks all emerge correctly ordered. |
 
----
-
-#### `top_fft16_tb.py` — module: `top_fft16`
+##### `fft4_mdc_tb.py` — fft4_mdc
 
 | Test | Scope |
 |---|---|
-| `test_fft_disabled_no_output` | With `SYS_CONFIG = 0b000`, streams a full 16-sample block and monitors `o_data` for 200 cycles. Verifies `o_data` remains 0 throughout, `cnt_inputs = 16`, and `cnt_outputs = 0`. |
-| `test_enable_counters_and_status` | Enables FFT via SPI (`SYS_CONFIG = 0b001`), drives one block, captures all 16 output samples. Verifies: at least one non-zero output, `cnt_inputs = cnt_outputs = 16`, `status_flags[2] = 1` (tx_ready), `status_flags[3] = 0` (FFT mode), `last_out_re/im` match the final captured sample. |
-| `test_zero_input` | Drives 16 all-zero IQ pairs in FFT mode. Verifies all 16 output samples are exactly (0, 0) and `error_flags[0] = 0` (no saturation). |
-| `test_soft_reset` | Drives a complete block, reads counters, issues a soft reset via SPI (bit 2 of `SYS_CONFIG`), clears the reset, and reads counters again. Verifies counters reset to 0. Drives a second block and confirms all 16 outputs are received. |
-| `test_spi_last_out_tracking` | Drives two consecutive blocks with a soft reset between them. After each block reads `last_out_re` and `last_out_im` via SPI and verifies they match the final sample of the serial output for that block. |
-| `test_dc_input_energy` | Drives 16 identical real-valued samples (DC, A=4) in FFT mode. Verifies exactly one non-zero output bin (bin 0 at physical index 0), all other 15 bins are (0, 0), and no clipping is flagged. |
-| `test_fft_mathematical_roundtrip` | Drives random complex Q(8,6) inputs in FFT mode. Captures all 16 serial outputs and compares each against the `FFT16` Python model using the MDC output reorder map `MDC_MAP`. Tolerance: ε < 1e-9. |
-| `test_ifft_status_flag` | Enables IFFT mode via SPI (`SYS_CONFIG = 0b011`) and reads `status_flags`. Verifies bit 3 (`fft_inverse`) is 1. |
-| `test_ifft_zero_input` | Drives 16 all-zero samples in IFFT mode. Verifies all 16 outputs are (0, 0) and `error_flags[0] = 0`. |
-| `test_ifft_dc_bin` | Constructs a frequency-domain input with only bin 0 active (A=32, Q(8,3)) and drives it through IFFT mode. Verifies all 16 time-domain output samples have `re = A/N = 16` (Q(8,6)) and `im = 0`. |
-| `test_ifft_counters` | Drives one full block in IFFT mode. Verifies `cnt_inputs = cnt_outputs = 16` and `last_out_re/im` match the final captured sample. |
-| `test_ifft_mathematical_roundtrip` | Drives random Q(8,3) frequency-domain inputs in IFFT mode. Captures all 16 serial outputs and compares each against the `FFT16` Python model IFFT path using `MDC_MAP`. Tolerance: ε < 1e-9. |
-| `test_fft_ifft_mode_switch` | Three-block sequence: FFT (seed 7) → soft reset → IFFT (seed 13) → soft reset → FFT (seed 21), with full pipeline drain between each mode change. Each block must pass bit-exact comparison against the Python model. |
+| `test_single_block_fft` | One block through both MDC stages in FFT mode, both stages checked. |
+| `test_single_block_ifft` | Same in IFFT mode. |
+| `test_many_random_blocks_fft` | 200 random blocks in FFT mode. |
+| `test_many_random_blocks_ifft` | 200 random blocks in IFFT mode. |
+| `test_no_stall_across_blocks` | 30 blocks in a row each still produce exactly two output pulses. |
+| `test_varying_gaps` | Input spacings of 1 to 15 idle cycles. |
+| `test_extreme_values` | 49 blocks built from the format extremes, confirming the guard bits prevent overflow. |
+| `test_zero_input` | Zero input gives zero output on both stages. |
+| `test_rotation_only_on_second_pulse` | The +/-j rotation is applied to `v3` only, and only on the second pulse of a pair. |
+| `test_mode_switch_between_blocks` | FFT and IFFT alternated across six block groups. |
+| `test_reset_midblock` | A reset after a half-delivered block realigns the unit. |
+| `test_idle_produces_no_output` | No output pulses for 200 idle cycles. |
+| `test_against_reference_model` | 50 blocks per mode cross-checked against the `fxpmath` `FFT4_Reference` model. |
+
+##### `fft4_radix4_tb.py` — fft4_radix4
+
+| Test | Scope |
+|---|---|
+| `test_idle_produces_no_output` | No output for 100 idle cycles. |
+| `test_pipeline_latency` | `o_valid` rises exactly six clocks after `i_valid`. |
+| `test_zero_input` | Four zero blocks give 16 zero output groups. |
+| `test_dc_input` | A constant block puts all the energy in output 0 of every group, in both modes. |
+| `test_random_blocks_fft` | 100 random blocks matched bit-exactly, including the twiddle ROM and the rounding. |
+| `test_random_blocks_ifft` | 100 random blocks in IFFT mode. |
+| `test_varying_gaps` | Group spacings of 0, 1, 2, 3, 7 and 15 idle cycles, covering both the back-to-back and the gapped twiddle-index timing. |
+| `test_twiddle_index_alignment` | 40 gapped blocks confirm the twiddle counter stays aligned over a long run. |
+| `test_extreme_inputs` | 49 blocks of extreme values, counting how many outputs saturate. |
+| `test_all_ones_saturation` | Full-negative and full-positive blocks stay inside the output range. |
+| `test_enable_gating` | Groups driven while `i_en` is low are ignored once the pipeline has drained. |
+| `test_mode_switch_between_blocks` | FFT and IFFT alternated across six block groups. |
+| `test_reset_midblock` | A reset after a partial block realigns the twiddle counter. |
+| `test_valid_pulse_count` | Exactly four output pulses per block over 20 blocks. |
+| `test_against_reference_model` | 20 blocks per mode cross-checked against the `fxpmath` reference. |
+| `test_valid_is_held_while_disabled` | Documents that `o_valid` and the output data freeze rather than clear while `i_en` is low, so downstream logic must share the same enable. |
+
+#### Unit level — commutators, buffering and serial I/O
+
+##### `fft16_shift_r4_tb.py` — fft16_shift_r4
+
+| Test | Scope |
+|---|---|
+| `test_reset_clears_valid` | `o_valid` stays low after reset with no input. |
+| `test_no_output_before_pipeline_fills` | Nothing is emitted during the first 12 valid samples. |
+| `test_single_block_tap_alignment` | The four taps carry samples 13, 9, 5 and 1 back from the newest, for one block. |
+| `test_decimation_groups_are_correct` | With a ramp input, group m carries exactly x[m], x[m+4], x[m+8], x[m+12]. |
+| `test_many_consecutive_blocks` | 12 consecutive blocks stay aligned, exercising the modulo-16 valid counter that replaced the fill detector. |
+| `test_varying_gaps` | Sample spacings of 0, 1, 3, 7 and 15 idle cycles. |
+| `test_clk_en_gating` | Samples driven while `i_en` is low are dropped without losing the decimation phase. |
+| `test_reset_realigns` | A reset mid-block restarts the phase cleanly. |
+| `test_valid_pulse_count` | Exactly four output pulses per 16 input samples over 8 blocks. |
+| `test_extreme_values` | Format extremes pass through the delay line unchanged. |
+| `test_re_im_independent` | The two delay lines do not interfere. |
+| `test_long_random_stream` | 512 samples, 128 groups, all tap-aligned. |
+
+##### `fft16_shift_r2_tb.py` — fft16_shift_r2
+
+| Test | Scope |
+|---|---|
+| `test_reset_clears_valid` | `o_valid` stays low after reset with no input. |
+| `test_no_output_before_pipeline_fills` | Nothing is emitted during the first 2 valid samples. |
+| `test_single_block_tap_alignment` | The two taps carry samples 3 and 1 back from the newest. |
+| `test_decimation_groups_are_correct` | With a ramp input, pair m carries exactly a[m] and a[m+2] of the current group of four. |
+| `test_many_consecutive_blocks` | 24 consecutive groups stay aligned. |
+| `test_varying_gaps` | Sample spacings of 0, 1, 3, 7 and 15 idle cycles. |
+| `test_clk_en_gating` | Samples driven while `i_en` is low are dropped without losing phase. |
+| `test_reset_realigns` | A reset mid-group restarts the phase cleanly. |
+| `test_valid_pulse_count` | Exactly two output pulses per 4 input samples over 20 groups. |
+| `test_extreme_values` | Format extremes pass through unchanged. |
+| `test_re_im_independent` | The two delay lines do not interfere. |
+| `test_long_random_stream` | 256 samples, 128 pairs, all tap-aligned. |
+
+##### `buffer_parallel2serial_tb.py` — buffer_parallel2serial
+
+| Test | Scope |
+|---|---|
+| `test_basic_ordering` | Two batches of 8 emerge as batch0[0..7] then batch1[0..7]. |
+| `test_backpressure` | The receiver holds busy for 5 cycles per sample; nothing is dropped or reordered. |
+| `test_delayed_ready` | Both batches are loaded before `i_tx_ready` is ever asserted. |
+| `test_random` | Random values and a random busy duration between 2 and 8 cycles. |
+| `test_extreme_values` | Format extremes pass through unchanged. |
+| `test_no_output_after_single_batch` | A single batch never starts a readout; the buffer waits for its partner. |
+| `test_many_consecutive_frames` | 12 consecutive 16-sample frames with no reset. |
+| `test_busy_cycle_sweep` | Backpressure durations from 1 to 8 cycles. |
+| `test_valid_ignored_during_readout` | An intruding `i_valid` during readout does not corrupt the frame in flight. |
+| `test_reset_midstream` | A reset after a half-filled frame realigns the batch counter. |
+| `test_reset_during_readout` | A reset part way through a readout recovers cleanly. |
+| `test_clk_en_gating` | Batches fed while `i_en` is low are ignored. |
+| `test_output_valid_is_single_cycle` | `o_valid` never stays high for more than one cycle. |
+| `test_ready_never_asserted` | The frame is held indefinitely until `i_tx_ready` finally arrives. |
+| `test_alternating_extremes_long_run` | 8 frames of alternating full-scale values with random backpressure. |
+
+##### `rx_serializer_tb.py` — rx_serializer
+
+| Test | Scope |
+|---|---|
+| `test_basic_deserialization` | 16 known IQ pairs reconstructed exactly. |
+| `test_valid_single_pulse` | `o_valid` is high for exactly one cycle per sample. |
+| `test_consecutive_batches` | Two random batches separated by a short idle gap. |
+| `test_spurious_then_valid` | An all-zero batch followed by a real one; the FSM does not conflate them. |
+| `test_extreme_values` | Full-scale signed values deserialise correctly. |
+| `test_many_consecutive_batches` | 12 batches with random idle gaps between them. |
+| `test_no_gap_between_batches` | 6 batches sent back to back with no idle time at all. |
+| `test_all_ones_payload` | An all-ones payload never retriggers the start detector. |
+| `test_idle_low_produces_no_output` | A line held low for 300 cycles produces no samples. |
+| `test_reception_after_long_idle` | Reception resumes correctly after a 500-cycle idle gap. |
+| `test_reset_midframe` | A reset in the middle of a frame recovers cleanly. |
+| `test_sample_counter_wraps` | 5 batches confirm the sample counter wraps at 16. |
+| `test_valid_count_per_batch` | Exactly 16 valid pulses per batch, no more. |
+| `test_alternating_bit_pattern` | 0x55 / 0xAA patterns deserialise without bit slips. |
+| `test_long_random_stream` | 25 random batches, 400 samples. |
+
+##### `tx_serializer_tb.py` — tx_serializer
+
+| Test | Scope |
+|---|---|
+| `test_basic_serialization` | 16 IQ pairs reconstructed from the serial stream. |
+| `test_start_bit_only_on_first` | The start bit appears only on sample 0 of a batch. |
+| `test_ready_deasserts_during_tx` | `o_ready` drops on acceptance and returns only when the sample is fully sent. |
+| `test_consecutive_batches` | Two full batches back to back, each independently framed. |
+| `test_data_ignored_when_busy` | New data offered mid-transmission is discarded without corrupting the output. |
+| `test_extreme_values` | Full-scale signed values serialise correctly. |
+| `test_all_zero_batch` | An all-zero batch still frames correctly. |
+| `test_all_ones_batch` | An all-ones batch does not confuse the framing. |
+| `test_many_consecutive_batches` | 10 consecutive batches keep the start-bit cadence. |
+| `test_sample_counter_wraps` | 3 batches confirm the start bit reappears exactly every 16 samples. |
+| `test_start_bit_timing` | The line is still low one clock after `i_valid`, and the next bit is the start bit only on samples 0 and 16; otherwise it is the payload MSB. |
+| `test_ready_high_when_idle` | `o_ready` high and `o_data` low for 50 idle cycles. |
+| `test_reset_during_transmission` | A reset mid-transmission returns the serialiser to idle and it works again afterwards. |
+| `test_delayed_valid` | Random idle gaps of 1 to 20 cycles between samples do not disturb framing. |
+| `test_alternating_bit_patterns` | 0x55 / 0xAA patterns serialise without bit slips. |
+| `test_long_random_run` | 20 random batches, 320 samples. |
+
+#### Unit level — debug interface
+
+##### `spi_slave_mode0_tb.py` — spi_slave_mode0
+
+| Test | Scope |
+|---|---|
+| `test_reset_state` | Every output register resets to its documented value and MISO idles low. |
+| `test_write_frame_capture` | Six representative write frames; address, data, RW bit and the raw frame all captured. |
+| `test_read_frame_returns_data_in` | Seven read frames return `i_data` on MISO. |
+| `test_exhaustive_read_values` | All 256 read values shifted out correctly. |
+| `test_exhaustive_write_data` | All 256 write data values captured. |
+| `test_exhaustive_addresses` | All 128 addresses captured. |
+| `test_write_enable_pulse` | `o_write_enable` pulses exactly once per write frame, and `o_done` is high at the end. |
+| `test_no_write_enable_on_read` | `o_write_enable` stays low for a read frame. |
+| `test_miso_idle_low_when_deselected` | MISO is driven low whenever `i_ss_n` is high. |
+| `test_back_to_back_frames_same_selection` | 20 chained frames inside a single chip select. |
+| `test_deselect_resyncs_after_aborted_frame` | Aborting at every length from 1 to 15 bits; the next frame decodes correctly with no idle clock needed, verifying the asynchronous `ss_n` clear. |
+| `test_aborted_frame_never_forges_a_write` | 300 read frames issued after aborts of every length never assert `o_write_enable` nor decode as a write. |
+| `test_complete_frames_never_desync` | 50 complete frames keep the slave synchronised. |
+| `test_random_traffic` | 300 random read and write frames. |
+| `test_rw_bit_latched_at_header` | The RW bit and address latch exactly on the last header bit. |
+| `test_reset_during_frame` | A reset mid-frame clears the outputs and the next frame works. |
+
+##### `debug_unit_tb.py` — debug_unit
+
+| Test | Scope |
+|---|---|
+| `test_sys_config_write` | All 8 values of `sys_config` written through a full transaction and read back on the port. |
+| `test_sys_config_readback` | Three values read back through `o_spi_rdata` at address 0x10. |
+| `test_status_snapshot` | All 7 probes set, snapshot triggered, every register verified. |
+| `test_cdc_snapshot_freeze` | Probes changed while `ss_n` is still low; the snapshot keeps the pre-change values. |
+| `test_cdc_snapshot_update` | Two consecutive snapshots capture their own independent values. |
+| `test_default_address` | Four unmapped addresses return 0x00. |
+| `test_random_snapshot` | 8 random iterations of set, snapshot, disturb, verify. |
+| `test_reset_state` | Reset clears `o_sys_config` and every snapshot register. |
+| `test_exhaustive_probe_values` | Probe values swept across the full 8-bit range in steps of 5. |
+| `test_each_probe_is_independent` | Setting one probe leaves the other six reading zero, confirming the address decode. |
+| `test_all_unmapped_addresses_read_zero` | All 120 unmapped addresses return 0x00. |
+| `test_write_to_read_only_address_ignored` | Writes to any probe address leave `sys_config` untouched. |
+| `test_read_transaction_does_not_write` | A READ transaction never commits write data, even with data present on the bus. |
+| `test_sys_config_uses_low_three_bits` | All 256 write values map to the low three bits. |
+| `test_sys_config_readback_upper_bits_zero` | Read-back has its upper five bits zeroed. |
+| `test_snapshot_not_triggered_without_ss_n` | Probes stay frozen until the next `ss_n` falling edge. |
+| `test_repeated_config_writes` | 60 random back-to-back write and read-back cycles. |
+| `test_reset_clears_config_and_snapshots` | A reset clears both the configuration and all snapshots. |
+
+#### Integration level
+
+##### `buffer_tx_tb.py` — buffer_parallel2serial + tx_serializer
+
+| Test | Scope |
+|---|---|
+| `test_basic_integration` | Two batches of 8 through both modules, reconstructed from the serial output. |
+| `test_start_bit_framing` | The start bit lands at the right position in the combined stream. |
+| `test_random_data` | Random values preserved end to end. |
+| `test_consecutive_frame_batches` | Two complete 16-sample frames back to back. |
+| `test_extreme_values_end_to_end` | Full-scale values survive buffer and serialiser. |
+| `test_all_zero_frame` | An all-zero frame still frames correctly. |
+| `test_all_ones_frame` | An all-ones frame does not confuse the start-bit framing. |
+| `test_many_consecutive_frames` | 8 consecutive frames. |
+| `test_delayed_second_batch` | A 120-cycle gap between the two half-batches; nothing is transmitted until the frame is complete. |
+| `test_reset_between_frames` | A reset after a half frame realigns the buffer. |
+| `test_clk_en_gating` | Batches fed while `i_en` is low are ignored. |
+| `test_ready_returns_high_between_frames` | The link returns to idle low between frames. |
+| `test_alternating_patterns` | 0x55 / 0xAA patterns survive the serial link. |
+| `test_long_random_run` | 15 random frames, 240 samples. |
+
+##### `debug_system_tb.py` — debug_system
+
+| Test | Scope |
+|---|---|
+| `test_spi_write_sys_config` | Real 16-bit mode-0 frames for all 8 configuration values. |
+| `test_spi_read_status_register` | READ frames for all 7 status addresses verified on MISO. |
+| `test_spi_read_sys_config` | Write then read back through real SPI frames. |
+| `test_cdc_snapshot_timing` | Probes changed while SS_N is low; MISO returns the frozen value, and a second frame picks up the new one. |
+| `test_random_rw` | 6 random iterations of mixed reads and writes. |
+| `test_reset_state` | Whole-subsystem reset state including MISO idle. |
+| `test_read_every_probe_register` | Each of the 7 probes given a distinct value and read back over SPI. |
+| `test_exhaustive_read_values` | Read values swept across the 8-bit range in steps of 3, on two different registers at once. |
+| `test_all_sys_config_values` | All 256 write values drive the three configuration bits. |
+| `test_unmapped_addresses_read_zero` | Ten unmapped addresses read zero even with all probes at 0xFF. |
+| `test_write_then_read_back` | Write followed by read returns the same value for all 8 configurations. |
+| `test_write_to_probe_address_does_not_change_config` | Writes to probe addresses leave the configuration untouched. |
+| `test_snapshot_frozen_during_transaction` | A probe changed mid-frame does not affect the value being clocked out. |
+| `test_consecutive_reads_of_same_address` | 30 iterations of three repeated reads returning a stable value. |
+| `test_interleaved_reads_and_writes` | 60 interleaved transactions; reads never disturb the configuration. |
+| `test_reset_clears_everything` | A reset clears configuration and snapshots together. |
+| `test_miso_low_outside_data_phase` | MISO stays low during the header and after deselect. |
+
+##### `fft16_tb.py` — fft16
+
+| Test | Scope |
+|---|---|
+| `test_fft16_fft` | Forward FFT with four internal checkpoints probed per stage: radix-4 output, MDC pre-clip, `clip_round` output and the buffered output through a `tx_serializer` model. Compared bit-exactly against `model/fft16.py`. |
+| `test_fft16_ifft` | Same four-checkpoint procedure in IFFT mode, reading the `rnd_ifft*` nodes and confirming the implicit 1/N normalisation. |
+| `test_fft_consecutive_blocks` | 6 consecutive FFT blocks with no reset between them. |
+| `test_ifft_consecutive_blocks` | 6 consecutive IFFT blocks with no reset. |
+| `test_zero_input` | Zero input gives zero output in both modes. |
+| `test_dc_input` | A constant input excites bin 0 only, and matches the model. |
+| `test_impulse_input` | An impulse gives a flat spectrum, and matches the model. |
+| `test_single_tone_bins` | Half-scale tones at seven frequencies; each peaks in its own bin and matches the golden model bit for bit. |
+| `test_mode_switch_between_blocks` | FFT and IFFT alternated across six block groups. |
+| `test_full_scale_input` | A full-scale block matches the saturating model. |
+| `test_output_sample_count` | Exactly 16 output samples per input block over 4 blocks. |
+| `test_clk_en_gating` | Samples driven while `i_en` is low are ignored. |
+| `test_reset_between_blocks` | A reset before every block also produces correct results. |
+
+#### System level
+
+##### `top_fft16_tb.py` — top_fft16
+
+| Test | Scope |
+|---|---|
+| `test_fft_disabled_no_output` | With the core gated off, `o_data` stays low, `cnt_inputs` reaches 16 and `cnt_outputs` stays 0. |
+| `test_enable_counters_and_status` | One block with the core enabled; counters, `status_flags` and `last_out_re/im` all verified. |
+| `test_zero_input` | 16 zero samples give 16 zero outputs and no clipping. |
+| `test_soft_reset` | Counters verified before a soft reset, cleared after it, and a further block still runs. |
+| `test_spi_last_out_tracking` | Two blocks with a soft reset between; `last_out_*` matches the final sample of each. |
+| `test_dc_input_energy` | A DC block excites exactly one output bin and flags no clipping. |
+| `test_fft_mathematical_roundtrip` | Random Q(8,6) input compared bit-exactly against the golden model through `MDC_MAP`. |
+| `test_ifft_status_flag` | `status_flags[3]` reads 1 in IFFT mode. |
+| `test_ifft_zero_input` | Zero frequency-domain input gives zero time-domain output. |
+| `test_ifft_dc_bin` | A single active DC bin gives a constant real time-domain sequence at A/N. |
+| `test_ifft_counters` | Counters and `last_out_*` in IFFT mode. |
+| `test_ifft_mathematical_roundtrip` | Random Q(8,3) input compared bit-exactly against the golden model. |
+| `test_fft_ifft_mode_switch` | FFT to IFFT and back with a soft reset and full pipeline drain at each change. |
+| `test_fft_back_to_back_blocks` | 5 consecutive FFT blocks with no reset, counters checked at the end. |
+| `test_ifft_back_to_back_blocks` | 5 consecutive IFFT blocks with no reset. |
+| `test_dc_repeated_without_reset` | 6 DC blocks in a row each excite exactly bin 0, exercising the commutator fixes at chip level. |
+| `test_impulse_response` | An impulse produces 16 identical non-zero bins. |
+| `test_single_tone_peaks` | Tones at four frequencies peak in the right bin with leakage below the quantisation floor. |
+| `test_counters_wrap` | 17 blocks drive the 8-bit counters past 256 and the wrapped value is checked. |
+| `test_clipping_sets_error_flag` | A saturating block latches `error_flags[0]`, cross-checked against the samples actually observed. |
+| `test_error_flag_cleared_by_soft_reset` | The sticky error flag is cleared by a soft reset. |
+| `test_status_flags_bits` | Each `status_flags` bit tracks the configuration, and the upper nibble stays zero. |
+| `test_all_sys_config_values` | All 8 configuration values written and read back at chip level. |
+| `test_unmapped_registers_read_zero` | Six unmapped addresses read zero over the real SPI link. |
+| `test_mid_data_probe` | `mid_data_re` reads back one of the injected real samples. |
+| `test_disable_midstream_stops_output` | Gating the core off mid-session stops all output; re-enabling resumes correctly. |
+| `test_hard_reset_between_blocks` | 3 blocks each preceded by a hard reset. |
+| `test_long_mixed_mode_session` | 8 blocks over a scripted FFT/IFFT schedule with soft resets at each mode change. |
+
+#### Bring-up level
+
+##### `top_fft16_bringup_tb.py` — top_fft16 — bring-up sequence
+
+| Test | Scope |
+|---|---|
+| `test_bringup_01_power_on_state` | Full power-on register map: `sys_config` zero, the reset-backed probes at their documented values, `status_flags` at 0x04 because `tx_ready` is high, unmapped addresses zero, both output lines idle for 1000 cycles, and `mid_data_re` undefined until the delay line has been filled. |
+| `test_bringup_02_disabled_core_blocks_data` | A full block injected with the core disabled: the receiver counts it, nothing is emitted, and enabling afterwards does not clear the counters. |
+| `test_bringup_03_configuration_register` | Every configuration value written and read back, upper write bits ignored, probe addresses proven read-only, and the inverse bit observed in `status_flags`. |
+| `test_bringup_04_first_fft_block` | First FFT block after bring-up, cross-checked against all seven debug registers. |
+| `test_bringup_05_first_ifft_block` | Same for the first IFFT block. |
+| `test_bringup_06_long_mixed_session` | 17 blocks over 8 in-flight mode changes performed with a plain `sys_config` write and no reset. Every block is compared against the golden model and the counters, `last_out_*` and `status_flags` are re-checked after each one. |
+| `test_bringup_07_debug_access_during_streaming` | The SPI port is polled continuously while four blocks stream; the datapath results are unaffected and the counters survive. |
+| `test_bringup_08_error_flag_lifecycle` | Clean, then saturating, then sticky across a further block, then cleared by a soft reset and staying clear. |
+| `test_bringup_09_spi_abort_robustness` | Aborted SPI frames of every length interleaved with valid traffic, plus 60 read frames after random aborts; the configuration is never disturbed and the datapath still works. |
+| `test_bringup_10_reset_matrix` | Nine verified blocks across hard reset, soft reset and enable gating. |
+| `test_bringup_11_sustained_throughput` | 20 verified blocks back to back, then enough further blocks to wrap the 8-bit counters. |
+| `test_bringup_12_structural_signals` | DC, impulse, half-scale tones, a full-scale tone that deliberately saturates and latches the error flag, and a zero block after a soft reset. |
+| `test_bringup_13_block_pacing` | Two-block pacing at 18, 24, 32, 64 and 256 idle clocks, then 20 sustained blocks at the qualified 32-clock gap in both FFT and IFFT modes. |
+
+#### Clock domain crossing level
+
+##### `cdc_metastability_tb.py` — top_fft16 — clock domain crossing
+
+| Test | Scope |
+|---|---|
+| `test_phase_sweep_config_write` | The `ss_n` edges placed at all 20 sub-cycle offsets of the system clock; every configuration write and read-back is correct at each phase. |
+| `test_phase_sweep_probe_read` | Snapshot reads correct at all 20 sub-cycle phases. |
+| `test_random_jitter_soak` | 120 transactions with random SPI half periods from 30 to 90 ns, per-bit jitter, random lead and tail times and random phases. |
+| `test_forced_metastability_on_ss_sync` | 40 injections that force the first stage of the `ss_n` synchroniser to the opposite value for one cycle; the configuration always ends up holding either the old or the new value, never anything else. |
+| `test_forced_metastability_on_snapshot` | 30 injections on a `cdc_snapshot` trigger while the probed counter is moving; the read always returns a value the counter genuinely held. |
+| `test_sclk_speed_limit` | Sweeps the SPI clock from 10 MHz to 500 MHz against a changing probe and finds where the read starts returning the previous frame's snapshot. |
+| `test_ss_n_idle_time_limit` | Sweeps the `ss_n` high time between frames to find where the write commit is lost, then verifies the recommended three-clock idle commits at every sub-cycle phase. |
+| `test_snapshot_is_taken_per_frame` | Confirms every read frame arms a fresh snapshot, so registers read in different frames come from different instants. |
 
 ---
 
@@ -619,6 +968,27 @@ pip install cocotb fxpmath numpy
 cd tests
 ./run_all_tests.sh
 ```
+
+`run_all_tests.sh` runs `make` in every subdirectory of `tests/` and reports a per-suite pass or fail summary. Adding a directory with a `Makefile` and a `*_tb.py` is all it takes to add a suite; the CI workflow in `.github/workflows/rtl-tests.yml` iterates the same way.
+
+To run one suite, or one test inside it:
+
+```bash
+cd tests/top_fft16_bringup
+make                                        # the whole suite
+make COCOTB_TESTCASE=test_bringup_06_long_mixed_session
+```
+
+The suites that check against the golden model pick it up through `export PYTHONPATH := $(PWD)/../../model` in their Makefile, so `model/fft16.py` is the single source of truth. Running it directly regenerates the validation plots:
+
+```bash
+pip install matplotlib
+python model/fft16.py
+```
+
+Simulation is Icarus Verilog by default; override with `SIM=verilator` if preferred.
+
+> **Note.** These results are functional RTL simulation only. Synthesis, lint, CDC sign-off, static timing and gate-level simulation are run separately in the physical flow and are not covered by this suite.
 
 ---
 

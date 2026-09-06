@@ -9,13 +9,13 @@ TIMEOUT_CYCLES = 200
 
 
 async def reset_dut(dut):
-    dut.i_rst_n.value   = 0
+    dut.i_rstn.value   = 0
     dut.i_valid.value   = 0
     dut.i_data_re.value = 0
     dut.i_data_im.value = 0
     for _ in range(4):
         await RisingEdge(dut.i_clk)
-    dut.i_rst_n.value = 1
+    dut.i_rstn.value = 1
     await RisingEdge(dut.i_clk)
 
 
@@ -250,3 +250,210 @@ async def test_data_ignored_when_busy(dut):
         f"Expected 0x{expected:04X}, got 0x{received:04X}"
     cocotb.log.info(f"  Received 0x{received:04X} — busy data correctly ignored  OK")
     cocotb.log.info("test_data_ignored_when_busy PASSED.")
+
+import random
+
+MIN_VAL = -(1 << (NB_DATA - 1))
+MAX_VAL = (1 << (NB_DATA - 1)) - 1
+EXTREMES = [MIN_VAL, MIN_VAL + 1, -1, 0, 1, MAX_VAL - 1, MAX_VAL]
+
+
+def word_of(re_val, im_val):
+    return ((re_val & 0xFF) << 8) | (im_val & 0xFF)
+
+
+async def check_batch(dut, vectors, context=""):
+    results = await transmit_batch(dut, vectors)
+    for idx, ((re_val, im_val), received) in enumerate(zip(vectors, results)):
+        expected = word_of(re_val, im_val)
+        assert received == expected, (
+            f"{context}[{idx}] expected 0x{expected:04X}, got 0x{received:04X}"
+        )
+    return results
+
+
+@cocotb.test()
+async def test_extreme_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    vectors = [(EXTREMES[i % 7], EXTREMES[(i * 3) % 7]) for i in range(N_DATA)]
+    await check_batch(dut, vectors)
+    cocotb.log.info("Full-scale signed values serialise correctly OK")
+
+
+@cocotb.test()
+async def test_all_zero_batch(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await check_batch(dut, [(0, 0)] * N_DATA)
+    cocotb.log.info("An all-zero batch still frames correctly OK")
+
+
+@cocotb.test()
+async def test_all_ones_batch(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await check_batch(dut, [(-1, -1)] * N_DATA)
+    cocotb.log.info("An all-ones batch does not confuse the framing OK")
+
+
+@cocotb.test()
+async def test_many_consecutive_batches(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(121)
+    for batch in range(10):
+        vectors = [
+            (rng.randint(MIN_VAL, MAX_VAL), rng.randint(MIN_VAL, MAX_VAL))
+            for _ in range(N_DATA)
+        ]
+        await check_batch(dut, vectors, f"batch {batch}: ")
+    cocotb.log.info("10 consecutive batches keep the start-bit cadence OK")
+
+
+@cocotb.test()
+async def test_sample_counter_wraps(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(122)
+    for batch in range(3):
+        for idx in range(N_DATA):
+            re_val = rng.randint(MIN_VAL, MAX_VAL)
+            im_val = rng.randint(MIN_VAL, MAX_VAL)
+            received = await transmit_and_capture(
+                dut, re_val, im_val, expect_start=(idx == 0)
+            )
+            expected = word_of(re_val, im_val)
+            assert received == expected, (
+                f"batch {batch} sample {idx}: expected 0x{expected:04X}, "
+                f"got 0x{received:04X}"
+            )
+    cocotb.log.info(
+        "The start bit reappears exactly every 16 samples over 3 batches OK"
+    )
+
+
+@cocotb.test()
+async def test_start_bit_timing(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(126)
+    for idx in range(N_DATA + 3):
+        re_val = rng.randint(MIN_VAL, MAX_VAL)
+        im_val = rng.randint(MIN_VAL, MAX_VAL)
+        expected = word_of(re_val, im_val)
+        await wait_for_ready(dut)
+        dut.i_valid.value = 1
+        dut.i_data_re.value = re_val & 0xFF
+        dut.i_data_im.value = im_val & 0xFF
+        await RisingEdge(dut.i_clk)
+        dut.i_valid.value = 0
+        await RisingEdge(dut.i_clk)
+        assert int(dut.o_data.value) == 0, (
+            f"sample {idx}: the line must still be low one clock after i_valid"
+        )
+        await RisingEdge(dut.i_clk)
+        first = int(dut.o_data.value)
+        if idx % N_DATA == 0:
+            assert first == 1, (
+                f"sample {idx} starts a batch and must emit a start bit"
+            )
+        else:
+            assert first == (expected >> 15) & 1, (
+                f"sample {idx} must start with the payload MSB, got {first}"
+            )
+    cocotb.log.info(
+        "The start bit is inserted only on samples 0 and 16 of the stream OK"
+    )
+
+
+@cocotb.test()
+async def test_ready_high_when_idle(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for _ in range(50):
+        await RisingEdge(dut.i_clk)
+        assert dut.o_ready.value == 1, "o_ready must stay high while idle"
+        assert dut.o_data.value == 0, "o_data must stay low while idle"
+    cocotb.log.info("o_ready stays high and o_data low while idle OK")
+
+
+@cocotb.test()
+async def test_reset_during_transmission(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await wait_for_ready(dut)
+    dut.i_valid.value = 1
+    dut.i_data_re.value = 0xA5
+    dut.i_data_im.value = 0x5A
+    await RisingEdge(dut.i_clk)
+    dut.i_valid.value = 0
+    for _ in range(6):
+        await RisingEdge(dut.i_clk)
+
+    await reset_dut(dut)
+    assert dut.o_ready.value == 1, "reset must return the serializer to idle"
+    assert dut.o_data.value == 0, "reset must drive o_data low"
+
+    rng = random.Random(123)
+    vectors = [
+        (rng.randint(MIN_VAL, MAX_VAL), rng.randint(MIN_VAL, MAX_VAL))
+        for _ in range(N_DATA)
+    ]
+    await check_batch(dut, vectors)
+    cocotb.log.info("Reset during a transmission recovers cleanly OK")
+
+
+@cocotb.test()
+async def test_delayed_valid(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(124)
+    for idx in range(N_DATA):
+        re_val = rng.randint(MIN_VAL, MAX_VAL)
+        im_val = rng.randint(MIN_VAL, MAX_VAL)
+        for _ in range(rng.randint(1, 20)):
+            await RisingEdge(dut.i_clk)
+        received = await transmit_and_capture(
+            dut, re_val, im_val, expect_start=(idx == 0)
+        )
+        expected = word_of(re_val, im_val)
+        assert received == expected, (
+            f"[{idx}] expected 0x{expected:04X}, got 0x{received:04X}"
+        )
+    cocotb.log.info("Random idle gaps between samples do not disturb framing OK")
+
+
+@cocotb.test()
+async def test_alternating_bit_patterns(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    patterns = [(-86, 85), (85, -86), (-1, 0), (0, -1)]
+    vectors = [patterns[i % len(patterns)] for i in range(N_DATA)]
+    await check_batch(dut, vectors)
+    cocotb.log.info("Alternating bit patterns serialise without bit slips OK")
+
+
+@cocotb.test()
+async def test_long_random_run(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(125)
+    for batch in range(20):
+        vectors = [
+            (rng.randint(MIN_VAL, MAX_VAL), rng.randint(MIN_VAL, MAX_VAL))
+            for _ in range(N_DATA)
+        ]
+        await check_batch(dut, vectors, f"batch {batch}: ")
+    cocotb.log.info("20 random batches, 320 samples total OK")

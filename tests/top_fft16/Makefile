@@ -28,10 +28,11 @@ VERILOG_SOURCES += $(SRC_DIR)/fft16_shift_r4.v
 VERILOG_SOURCES += $(SRC_DIR)/buffer_parallel2serial.v
 
 # FFT submodules
-VERILOG_SOURCES += $(SRC_DIR)/complex_multiplier.v
 VERILOG_SOURCES += $(SRC_DIR)/clip_round.v
 VERILOG_SOURCES += $(SRC_DIR)/btfly_2.v
 VERILOG_SOURCES += $(SRC_DIR)/ds_switch.v
+
+export PYTHONPATH := $(PWD)/../../model:$(PYTHONPATH)
 
 TOPLEVEL = top_fft16
 MODULE   = top_fft16_tb

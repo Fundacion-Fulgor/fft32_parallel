@@ -27,21 +27,21 @@ RW_READ  = 1
 # ---------------------------------------------------------------------------
 
 async def reset_dut(dut):
-    dut.rst_n.value        = 0
-    dut.ss_n.value         = 1
-    dut.sclk.value         = 0
-    dut.mosi.value         = 0
-    dut.status_flags.value = 0
-    dut.error_flags.value  = 0
-    dut.cnt_inputs.value   = 0
-    dut.cnt_outputs.value  = 0
-    dut.last_out_re.value  = 0
-    dut.last_out_im.value  = 0
-    dut.mid_data_re.value  = 0
+    dut.i_rstn.value        = 0
+    dut.i_ss_n.value         = 1
+    dut.i_sclk.value         = 0
+    dut.i_mosi.value         = 0
+    dut.i_status_flags.value = 0
+    dut.i_error_flags.value  = 0
+    dut.i_cnt_inputs.value   = 0
+    dut.i_cnt_outputs.value  = 0
+    dut.i_last_out_re.value  = 0
+    dut.i_last_out_im.value  = 0
+    dut.i_mid_data_re.value  = 0
     for _ in range(4):
-        await RisingEdge(dut.clk)
-    dut.rst_n.value = 1
-    await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
+    dut.i_rstn.value = 1
+    await RisingEdge(dut.i_clk)
 
 
 async def spi_master_transfer(dut, rw, addr, wdata=0x00):
@@ -64,24 +64,24 @@ async def spi_master_transfer(dut, rw, addr, wdata=0x00):
     frame = ((rw & 1) << 15) | ((addr & 0x7F) << 8) | (wdata & 0xFF)
 
     # ss_n falls — triggers cdc_snapshot (falling edge detector in system domain)
-    dut.ss_n.value  = 0
-    dut.sclk.value  = 0
-    dut.mosi.value  = 0
+    dut.i_ss_n.value  = 0
+    dut.i_sclk.value  = 0
+    dut.i_mosi.value  = 0
     await Timer(SPI_HALF_NS, unit="ns")
 
     miso_byte = 0
 
     for i in range(16):
         # Set MOSI before rising edge (MSB first)
-        dut.mosi.value = (frame >> (15 - i)) & 1
+        dut.i_mosi.value = (frame >> (15 - i)) & 1
         await Timer(SPI_HALF_NS, unit="ns")
 
         # Rising edge — slave samples MOSI
-        dut.sclk.value = 1
+        dut.i_sclk.value = 1
         await Timer(SPI_HALF_NS, unit="ns")
 
         # Falling edge — slave updates tx_shift / MISO
-        dut.sclk.value = 0
+        dut.i_sclk.value = 0
         await Timer(SPI_HALF_NS, unit="ns")
 
         # Sample MISO after negedge during data byte:
@@ -90,15 +90,15 @@ async def spi_master_transfer(dut, rw, addr, wdata=0x00):
         #   ...
         #   i=14: seventh shift           -> MISO = data_in[0]
         if 7 <= i <= 14:
-            miso_byte = (miso_byte << 1) | int(dut.miso.value)
+            miso_byte = (miso_byte << 1) | int(dut.o_miso.value)
 
     # ss_n rises — triggers commit_pulse in debug_unit
-    dut.ss_n.value = 1
+    dut.i_ss_n.value = 1
     await Timer(SPI_HALF_NS, unit="ns")
 
     # Wait for commit_pulse and commit_pulse_q to propagate in system domain
     for _ in range(8):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     return miso_byte
 
@@ -123,7 +123,7 @@ async def test_spi_write_sys_config(dut):
     Exercises the full path: MOSI bits -> spi_slave_mode0 -> rw_bit/addr_out/data_out
     -> commit_pulse in debug_unit -> sys_config register.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_spi_write_sys_config ---")
 
@@ -131,7 +131,7 @@ async def test_spi_write_sys_config(dut):
 
     for val in test_vectors:
         await spi_write(dut, ADDR_SYS_CONFIG, val)
-        got = int(dut.sys_config.value)
+        got = int(dut.o_sys_config.value)
         assert got == val, \
             f"sys_config mismatch: wrote {val:#05b}, got {got:#05b}"
         cocotb.log.info(f"  sys_config = {val:#05b}  OK")
@@ -150,20 +150,20 @@ async def test_spi_read_status_register(dut):
     register address, and verifies the value received on MISO.
     Exercises the full path: cdc_snapshot freeze -> spi_rdata -> tx_shift -> MISO.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_spi_read_status_register ---")
 
-    dut.status_flags.value = 0xAB
-    dut.error_flags.value  = 0x01
-    dut.cnt_inputs.value   = 0x42
-    dut.cnt_outputs.value  = 0x10
-    dut.last_out_re.value  = 0x7F
-    dut.last_out_im.value  = 0x3C
-    dut.mid_data_re.value  = 0x55
+    dut.i_status_flags.value = 0xAB
+    dut.i_error_flags.value  = 0x01
+    dut.i_cnt_inputs.value   = 0x42
+    dut.i_cnt_outputs.value  = 0x10
+    dut.i_last_out_re.value  = 0x7F
+    dut.i_last_out_im.value  = 0x3C
+    dut.i_mid_data_re.value  = 0x55
 
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     checks = [
         (ADDR_STATUS_FLAGS, 0xAB, "status_flags"),
@@ -194,7 +194,7 @@ async def test_spi_read_sys_config(dut):
     Writes sys_config via SPI WRITE, then reads it back via SPI READ.
     Verifies that the read mux correctly returns sys_config at address 0x10.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_spi_read_sys_config ---")
 
@@ -224,55 +224,55 @@ async def test_cdc_snapshot_timing(dut):
       5. Complete the SPI READ transaction.
       6. Verify MISO returns A (frozen), not B (live).
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_cdc_snapshot_timing ---")
 
     # Step 1: set initial probe values (to be captured in snapshot)
-    dut.cnt_inputs.value  = 0x11
-    dut.cnt_outputs.value = 0x22
-    dut.last_out_re.value = 0x33
+    dut.i_cnt_inputs.value  = 0x11
+    dut.i_cnt_outputs.value = 0x22
+    dut.i_last_out_re.value = 0x33
 
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     # Step 2: ss_n falls — snapshot is triggered asynchronously
-    dut.ss_n.value  = 0
-    dut.sclk.value  = 0
-    dut.mosi.value  = 0
+    dut.i_ss_n.value  = 0
+    dut.i_sclk.value  = 0
+    dut.i_mosi.value  = 0
     await Timer(SPI_HALF_NS, unit="ns")
 
     # Step 3: wait for snapshot to propagate through system clock synchronizer
     # (minimum 3 system cycles, using 5 for margin)
     for _ in range(5):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     # Step 4: change probe inputs while ss_n is still low
-    dut.cnt_inputs.value  = 0xFF
-    dut.cnt_outputs.value = 0xEE
-    dut.last_out_re.value = 0xDD
+    dut.i_cnt_inputs.value  = 0xFF
+    dut.i_cnt_outputs.value = 0xEE
+    dut.i_last_out_re.value = 0xDD
 
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     # Step 5: clock out READ frame for ADDR_CNT_INPUTS
     frame    = (RW_READ << 15) | (ADDR_CNT_INPUTS << 8) | 0x00
     miso_cnt = 0
 
     for i in range(16):
-        dut.mosi.value = (frame >> (15 - i)) & 1
+        dut.i_mosi.value = (frame >> (15 - i)) & 1
         await Timer(SPI_HALF_NS, unit="ns")
-        dut.sclk.value = 1
+        dut.i_sclk.value = 1
         await Timer(SPI_HALF_NS, unit="ns")
-        dut.sclk.value = 0
+        dut.i_sclk.value = 0
         await Timer(SPI_HALF_NS, unit="ns")
         if 7 <= i <= 14:
-            miso_cnt = (miso_cnt << 1) | int(dut.miso.value)
+            miso_cnt = (miso_cnt << 1) | int(dut.o_miso.value)
 
-    dut.ss_n.value = 1
+    dut.i_ss_n.value = 1
     await Timer(SPI_HALF_NS, unit="ns")
     for _ in range(8):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     # Step 6: MISO must return 0x11 (frozen), not 0xFF (live)
     assert miso_cnt == 0x11, \
@@ -302,7 +302,7 @@ async def test_random_rw(dut):
         the values present at the time ss_n fell (frozen snapshot).
       - Writes a random value to sys_config and verifies the output port.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_random_rw ---")
 
@@ -320,11 +320,11 @@ async def test_random_rw(dut):
         }
 
         for name, val in probe_vals.items():
-            getattr(dut, name).value = val
+            getattr(dut, "i_" + name).value = val
 
         # Let values settle in system domain
         for _ in range(random.randint(2, 6)):
-            await RisingEdge(dut.clk)
+            await RisingEdge(dut.i_clk)
 
         # Read each status register — each SPI transaction snapshots current values
         # We read one by one so each transaction freezes the current probe state
@@ -347,9 +347,277 @@ async def test_random_rw(dut):
         # Write random value to sys_config and verify
         cfg_val = random.randint(0, 7)
         await spi_write(dut, ADDR_SYS_CONFIG, cfg_val)
-        got_cfg = int(dut.sys_config.value)
+        got_cfg = int(dut.o_sys_config.value)
         assert got_cfg == cfg_val, \
             f"Iter {iteration} - sys_config: expected {cfg_val:#05b}, got {got_cfg:#05b}"
         cocotb.log.info(f"  [{iteration}] sys_config = {got_cfg:#05b}  OK")
 
     cocotb.log.info("test_random_rw PASSED.")
+
+PROBE_SIGNALS = [
+    ("status_flags", ADDR_STATUS_FLAGS),
+    ("error_flags", ADDR_ERROR_FLAGS),
+    ("cnt_inputs", ADDR_CNT_INPUTS),
+    ("cnt_outputs", ADDR_CNT_OUTPUTS),
+    ("last_out_re", ADDR_LAST_OUT_RE),
+    ("last_out_im", ADDR_LAST_OUT_IM),
+    ("mid_data_re", ADDR_MID_DATA_RE),
+]
+
+MAPPED_ADDRESSES = [addr for _, addr in PROBE_SIGNALS] + [ADDR_SYS_CONFIG]
+
+
+def set_probes(dut, value_map):
+    for name, value in value_map.items():
+        getattr(dut, "i_" + name).value = value
+
+
+async def settle(dut, cycles=4):
+    for _ in range(cycles):
+        await RisingEdge(dut.i_clk)
+
+
+@cocotb.test()
+async def test_reset_state(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    assert int(dut.o_sys_config.value) == 0, "sys_config must reset to 0b000"
+    assert int(dut.o_miso.value) == 0, "miso must idle low while deselected"
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == 0, f"{name} must read 0 after reset, got {got:#04x}"
+    cocotb.log.info("Reset state of the whole debug system OK")
+
+
+@cocotb.test()
+async def test_read_every_probe_register(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    values = {
+        "status_flags": 0x0F,
+        "error_flags": 0x01,
+        "cnt_inputs": 0x10,
+        "cnt_outputs": 0x10,
+        "last_out_re": 0x7F,
+        "last_out_im": 0x80,
+        "mid_data_re": 0x5A,
+    }
+    set_probes(dut, values)
+    await settle(dut)
+
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == values[name], (
+            f"{name} @ {addr:#04x}: expected {values[name]:#04x}, got {got:#04x}"
+        )
+        cocotb.log.info(f"  {name} @ {addr:#04x} = {got:#04x} OK")
+    cocotb.log.info("Every probe register is readable over SPI OK")
+
+
+@cocotb.test()
+async def test_exhaustive_read_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(0, 256, 3):
+        set_probes(dut, {"cnt_inputs": value, "last_out_re": 255 - value})
+        await settle(dut)
+        got_a = await spi_read(dut, ADDR_CNT_INPUTS)
+        got_b = await spi_read(dut, ADDR_LAST_OUT_RE)
+        assert got_a == value, f"cnt_inputs: expected {value:#04x}, got {got_a:#04x}"
+        assert got_b == 255 - value, (
+            f"last_out_re: expected {255 - value:#04x}, got {got_b:#04x}"
+        )
+    cocotb.log.info("Swept read values across the 8-bit range OK")
+
+
+@cocotb.test()
+async def test_all_sys_config_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(256):
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        got = int(dut.o_sys_config.value)
+        assert got == (value & 0b111), (
+            f"wrote {value:#04x}: expected {value & 0b111:#05b}, got {got:#05b}"
+        )
+    cocotb.log.info("All 256 write values drive the three sys_config bits OK")
+
+
+@cocotb.test()
+async def test_unmapped_addresses_read_zero(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    set_probes(dut, {name: 0xFF for name, _ in PROBE_SIGNALS})
+    await settle(dut)
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b111)
+
+    for addr in [0x07, 0x08, 0x0F, 0x11, 0x20, 0x3F, 0x40, 0x55, 0x7E, 0x7F]:
+        got = await spi_read(dut, addr)
+        assert got == 0x00, (
+            f"unmapped address {addr:#04x} must read 0x00, got {got:#04x}"
+        )
+    cocotb.log.info("Unmapped addresses read back zero over SPI OK")
+
+
+@cocotb.test()
+async def test_write_then_read_back(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(8):
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        got = await spi_read(dut, ADDR_SYS_CONFIG)
+        assert got == value, (
+            f"sys_config read back {got:#05b} after writing {value:#05b}"
+        )
+        assert int(dut.o_sys_config.value) == value
+    cocotb.log.info("Write followed by read returns the same sys_config OK")
+
+
+@cocotb.test()
+async def test_write_to_probe_address_does_not_change_config(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b101)
+    for _, addr in PROBE_SIGNALS:
+        await spi_write(dut, addr, 0b010)
+        assert int(dut.o_sys_config.value) == 0b101, (
+            f"a write to {addr:#04x} changed sys_config"
+        )
+    cocotb.log.info("Writes to probe addresses leave sys_config untouched OK")
+
+
+@cocotb.test()
+async def test_snapshot_frozen_during_transaction(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    set_probes(dut, {"cnt_outputs": 0x42})
+    await settle(dut)
+
+    frame = (RW_READ << 15) | (ADDR_CNT_OUTPUTS << 8)
+    dut.i_ss_n.value = 0
+    dut.i_sclk.value = 0
+    dut.i_mosi.value = 0
+    await Timer(SPI_HALF_NS, unit="ns")
+    miso_byte = 0
+    for i in range(16):
+        dut.i_mosi.value = (frame >> (15 - i)) & 1
+        await Timer(SPI_HALF_NS, unit="ns")
+        dut.i_sclk.value = 1
+        await Timer(SPI_HALF_NS, unit="ns")
+        dut.i_sclk.value = 0
+        await Timer(SPI_HALF_NS, unit="ns")
+        if i == 3:
+            dut.i_cnt_outputs.value = 0xFF
+        if 7 <= i <= 14:
+            miso_byte = (miso_byte << 1) | int(dut.o_miso.value)
+    dut.i_ss_n.value = 1
+    await Timer(SPI_HALF_NS, unit="ns")
+    await settle(dut, 8)
+
+    assert miso_byte == 0x42, (
+        f"the snapshot taken at ss_n fall must be returned, got {miso_byte:#04x}"
+    )
+    cocotb.log.info("Probe changes during a transaction do not corrupt the read OK")
+
+
+@cocotb.test()
+async def test_consecutive_reads_of_same_address(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    random.seed(151)
+    for _ in range(30):
+        value = random.randint(0, 255)
+        set_probes(dut, {"mid_data_re": value})
+        await settle(dut)
+        for _ in range(3):
+            got = await spi_read(dut, ADDR_MID_DATA_RE)
+            assert got == value, (
+                f"repeated read: expected {value:#04x}, got {got:#04x}"
+            )
+    cocotb.log.info("Repeated reads of the same address are stable OK")
+
+
+@cocotb.test()
+async def test_interleaved_reads_and_writes(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    random.seed(152)
+    config = 0
+    for _ in range(60):
+        if random.random() < 0.5:
+            config = random.randint(0, 7)
+            await spi_write(dut, ADDR_SYS_CONFIG, config)
+            assert int(dut.o_sys_config.value) == config
+        else:
+            value = random.randint(0, 255)
+            set_probes(dut, {"cnt_inputs": value})
+            await settle(dut)
+            got = await spi_read(dut, ADDR_CNT_INPUTS)
+            assert got == value, (
+                f"interleaved read: expected {value:#04x}, got {got:#04x}"
+            )
+            assert int(dut.o_sys_config.value) == config, (
+                "a read must not disturb the configuration"
+            )
+    cocotb.log.info("60 interleaved read and write transactions OK")
+
+
+@cocotb.test()
+async def test_reset_clears_everything(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    set_probes(dut, {name: 0xFF for name, _ in PROBE_SIGNALS})
+    await settle(dut)
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b111)
+    await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert int(dut.o_sys_config.value) == 0b111
+
+    set_probes(dut, {name: 0x00 for name, _ in PROBE_SIGNALS})
+    await reset_dut(dut)
+    assert int(dut.o_sys_config.value) == 0, "reset must clear sys_config"
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == 0, f"reset must clear the {name} snapshot, got {got:#04x}"
+    cocotb.log.info("Reset clears configuration and snapshots OK")
+
+
+@cocotb.test()
+async def test_miso_low_outside_data_phase(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    set_probes(dut, {"last_out_im": 0xFF})
+    await settle(dut)
+
+    frame = (RW_READ << 15) | (ADDR_LAST_OUT_IM << 8)
+    dut.i_ss_n.value = 0
+    dut.i_sclk.value = 0
+    dut.i_mosi.value = 0
+    await Timer(SPI_HALF_NS, unit="ns")
+    for i in range(16):
+        dut.i_mosi.value = (frame >> (15 - i)) & 1
+        await Timer(SPI_HALF_NS, unit="ns")
+        dut.i_sclk.value = 1
+        await Timer(SPI_HALF_NS, unit="ns")
+        dut.i_sclk.value = 0
+        await Timer(SPI_HALF_NS, unit="ns")
+        if i < 7:
+            assert int(dut.o_miso.value) == 0, (
+                f"miso must stay low during the header, bit {i} was high"
+            )
+    dut.i_ss_n.value = 1
+    await Timer(SPI_HALF_NS, unit="ns")
+    await settle(dut, 8)
+    assert int(dut.o_miso.value) == 0, "miso must return low after deselect"
+    cocotb.log.info("miso stays low outside the data phase OK")

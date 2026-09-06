@@ -28,7 +28,7 @@ CFG_SRESET = 0b100
 
 # Cycles to wait after enabling clk_en before injecting real data.
 # fft16_shift_r4 and fft16_shift_r2 have no reset port — they only gate on
-# i_clk_en.  Residual valid pulses drain in at most a few dozen cycles.
+# i_en.  Residual valid pulses drain in at most a few dozen cycles.
 PIPELINE_DRAIN_CYCLES = 64
 
 # Fixed-point formats
@@ -48,14 +48,14 @@ def to_signed_8(val):
 
 
 async def reset_dut(dut):
-    dut.i_rst_n.value = 0
+    dut.i_rstn.value = 0
     dut.i_data.value = 0
     dut.i_spi_ss_n.value = 1
     dut.i_spi_sclk.value = 0
     dut.i_spi_mosi.value = 0
     for _ in range(4):
         await RisingEdge(dut.i_clk)
-    dut.i_rst_n.value = 1
+    dut.i_rstn.value = 1
     await RisingEdge(dut.i_clk)
 
 
@@ -195,7 +195,7 @@ async def run_roundtrip(dut, inverse, seed=42):
         fft_model.round.crnd(x, True, NB_DATA, nbf_in, "around") for x in input_float
     ]
 
-    _, _, expected_out = fft_model.process(input_q)
+    expected_out = fft_model.process(input_q)
 
     def fxp_to_int8(c, nbf):
         re = max(-128, min(127, int(round(c.real * (2**nbf)))))
@@ -669,3 +669,356 @@ async def test_fft_ifft_mode_switch(dut):
     await run_roundtrip(dut, inverse=0, seed=21)
 
     cocotb.log.info("test_fft_ifft_mode_switch PASSED.")
+
+
+async def enable_and_drain(dut, inverse):
+    if inverse:
+        await enable_ifft_and_drain(dut)
+    else:
+        await enable_fft_and_drain(dut)
+
+
+async def run_many_blocks(dut, inverse, n_blocks, first_seed):
+    for block in range(n_blocks):
+        cocotb.log.info(f"  block {block}")
+        await run_roundtrip(dut, inverse=inverse, seed=first_seed + block)
+
+
+@cocotb.test()
+async def test_fft_back_to_back_blocks(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_fft_back_to_back_blocks ---")
+
+    await enable_fft_and_drain(dut)
+    await run_many_blocks(dut, inverse=0, n_blocks=5, first_seed=300)
+
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == (5 * N) % 256, f"cnt_inputs: expected {(5 * N) % 256}, got {cnt_in}"
+    assert cnt_out == (5 * N) % 256, (
+        f"cnt_outputs: expected {(5 * N) % 256}, got {cnt_out}"
+    )
+    cocotb.log.info(f"  cnt_inputs={cnt_in} cnt_outputs={cnt_out}  OK")
+    cocotb.log.info("test_fft_back_to_back_blocks PASSED.")
+
+
+@cocotb.test()
+async def test_ifft_back_to_back_blocks(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_ifft_back_to_back_blocks ---")
+
+    await enable_ifft_and_drain(dut)
+    await run_many_blocks(dut, inverse=1, n_blocks=5, first_seed=400)
+    cocotb.log.info("test_ifft_back_to_back_blocks PASSED.")
+
+
+@cocotb.test()
+async def test_dc_repeated_without_reset(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_dc_repeated_without_reset ---")
+
+    await enable_fft_and_drain(dut)
+    A = 4
+    for block in range(6):
+        send_task = cocotb.start_soon(drive_stream(dut, [(A, 0)] * N))
+        received = await capture_block(dut, N)
+        await send_task
+        non_zero = [(i, re, im) for i, (re, im) in enumerate(received) if re or im]
+        assert len(non_zero) == 1, (
+            f"block {block}: DC input must give exactly one non-zero bin, "
+            f"got {non_zero}"
+        )
+        assert non_zero[0][0] == 0, (
+            f"block {block}: the non-zero bin must be at physical index 0"
+        )
+        cocotb.log.info(f"  block {block}: bin 0 = {non_zero[0][1:]}  OK")
+    cocotb.log.info("test_dc_repeated_without_reset PASSED.")
+
+
+@cocotb.test()
+async def test_impulse_response(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_impulse_response ---")
+
+    await enable_fft_and_drain(dut)
+    samples = [(0, 0)] * N
+    samples[0] = (64, 0)
+    send_task = cocotb.start_soon(drive_stream(dut, samples))
+    received = await capture_block(dut, N)
+    await send_task
+
+    first = received[0]
+    for idx, sample in enumerate(received):
+        assert sample == first, (
+            f"an impulse must give a flat spectrum, index {idx}={sample} "
+            f"vs index 0={first}"
+        )
+    assert first != (0, 0), "the flat spectrum must be non-zero"
+    cocotb.log.info(f"  All 16 bins equal {first}  OK")
+    cocotb.log.info("test_impulse_response PASSED.")
+
+
+@cocotb.test()
+async def test_single_tone_peaks(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_single_tone_peaks ---")
+
+    await enable_fft_and_drain(dut)
+    for k in [1, 2, 4, 6]:
+        samples = []
+        for n in range(N):
+            angle = 2 * np.pi * k * n / N
+            samples.append(
+                (
+                    int(round(np.cos(angle) * 63)),
+                    int(round(np.sin(angle) * 63)),
+                )
+            )
+        send_task = cocotb.start_soon(drive_stream(dut, samples))
+        received = await capture_block(dut, N)
+        await send_task
+
+        magnitudes = [0.0] * N
+        for phys_idx in range(N):
+            re, im = received[phys_idx]
+            magnitudes[MDC_MAP[phys_idx]] = (re * re + im * im) ** 0.5
+        peak = max(range(N), key=lambda i: magnitudes[i])
+        assert peak == k, (
+            f"tone at bin {k} peaked at bin {peak}, magnitudes={magnitudes}"
+        )
+        for idx in range(N):
+            if idx == k:
+                continue
+            assert magnitudes[idx] <= 3.0, (
+                f"tone k={k}: leakage of {magnitudes[idx]} into bin {idx}"
+            )
+        cocotb.log.info(f"  tone k={k} peaks at bin {peak}  OK")
+    cocotb.log.info("test_single_tone_peaks PASSED.")
+
+
+@cocotb.test()
+async def test_counters_wrap(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_counters_wrap ---")
+
+    await enable_fft_and_drain(dut)
+    n_blocks = 17
+    for block in range(n_blocks):
+        send_task = cocotb.start_soon(drive_stream(dut, [(block + 1, -block) for _ in range(N)]))
+        received = await capture_block(dut, N)
+        await send_task
+        assert len(received) == N, (
+            f"block {block} produced {len(received)} samples instead of {N}"
+        )
+
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+    expected = (n_blocks * N) % 256
+    cnt_in = await spi_read(dut, ADDR_CNT_INPUTS)
+    cnt_out = await spi_read(dut, ADDR_CNT_OUTPUTS)
+    assert cnt_in == expected, f"cnt_inputs: expected {expected}, got {cnt_in}"
+    assert cnt_out == expected, f"cnt_outputs: expected {expected}, got {cnt_out}"
+    cocotb.log.info(f"  After {n_blocks} blocks: cnt={cnt_in} (wrapped)  OK")
+    cocotb.log.info("test_counters_wrap PASSED.")
+
+
+@cocotb.test()
+async def test_clipping_sets_error_flag(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_clipping_sets_error_flag ---")
+
+    await enable_fft_and_drain(dut)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    assert (err & 0x01) == 0, f"error_flags must start clear, got 0x{err:02X}"
+
+    send_task = cocotb.start_soon(drive_stream(dut, [(127, 127)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    clipped = any(re in (127, -128) or im in (127, -128) for re, im in received)
+    assert (err & 0x01) == (1 if clipped else 0), (
+        f"error_flags[0]=0x{err:02X} does not match the observed clipping "
+        f"{clipped} in {received}"
+    )
+    cocotb.log.info(f"  error_flags=0x{err:02X} clipped={clipped}  OK")
+    cocotb.log.info("test_clipping_sets_error_flag PASSED.")
+
+
+@cocotb.test()
+async def test_error_flag_cleared_by_soft_reset(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_error_flag_cleared_by_soft_reset ---")
+
+    await enable_fft_and_drain(dut)
+    send_task = cocotb.start_soon(drive_stream(dut, [(127, 127)] * N))
+    await capture_block(dut, N)
+    await send_task
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+
+    await soft_reset_between_blocks(dut, CFG_ENABLE)
+    err = await spi_read(dut, ADDR_ERROR_FLAGS)
+    assert (err & 0x01) == 0, (
+        f"a soft reset must clear error_flags, got 0x{err:02X}"
+    )
+    cocotb.log.info(f"  error_flags=0x{err:02X} after soft reset  OK")
+    cocotb.log.info("test_error_flag_cleared_by_soft_reset PASSED.")
+
+
+@cocotb.test()
+async def test_status_flags_bits(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_status_flags_bits ---")
+
+    status = await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert (status >> 3) & 1 == 0, "fft_inverse must be 0 after reset"
+    assert status >> 4 == 0, f"status_flags[7:4] must be zero, got 0x{status:02X}"
+
+    await enable_ifft_and_drain(dut)
+    status = await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert (status >> 3) & 1 == 1, "fft_inverse must be 1 in IFFT mode"
+    assert (status >> 2) & 1 == 1, "tx_ready must be 1 while idle"
+    assert status >> 4 == 0, f"status_flags[7:4] must be zero, got 0x{status:02X}"
+
+    await soft_reset_between_blocks(dut, CFG_ENABLE)
+    status = await spi_read(dut, ADDR_STATUS_FLAGS)
+    assert (status >> 3) & 1 == 0, "fft_inverse must be 0 back in FFT mode"
+    cocotb.log.info(f"  status_flags tracks the configuration  OK")
+    cocotb.log.info("test_status_flags_bits PASSED.")
+
+
+@cocotb.test()
+async def test_all_sys_config_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_all_sys_config_values ---")
+
+    for value in range(8):
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        for _ in range(8):
+            await RisingEdge(dut.i_clk)
+        got = await spi_read(dut, ADDR_SYS_CONFIG)
+        if value & 0b100:
+            assert got == value or got == 0, (
+                f"sys_config {value:#05b} read back as {got:#05b}"
+            )
+        else:
+            assert got == value, (
+                f"sys_config {value:#05b} read back as {got:#05b}"
+            )
+        cocotb.log.info(f"  sys_config={value:#05b} -> {got:#05b}  OK")
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_DISABLE)
+    cocotb.log.info("test_all_sys_config_values PASSED.")
+
+
+@cocotb.test()
+async def test_unmapped_registers_read_zero(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_unmapped_registers_read_zero ---")
+
+    for addr in [0x07, 0x08, 0x0F, 0x11, 0x3F, 0x7F]:
+        got = await spi_read(dut, addr)
+        assert got == 0x00, (
+            f"unmapped address 0x{addr:02X} must read 0x00, got 0x{got:02X}"
+        )
+        cocotb.log.info(f"  addr 0x{addr:02X} -> 0x{got:02X}  OK")
+    cocotb.log.info("test_unmapped_registers_read_zero PASSED.")
+
+
+@cocotb.test()
+async def test_mid_data_probe(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_mid_data_probe ---")
+
+    await enable_fft_and_drain(dut)
+    samples = [(i * 4 - 32, -(i * 4 - 32)) for i in range(N)]
+    send_task = cocotb.start_soon(drive_stream(dut, samples))
+    await capture_block(dut, N)
+    await send_task
+    for _ in range(20):
+        await RisingEdge(dut.i_clk)
+
+    mid = to_signed_8(await spi_read(dut, ADDR_MID_DATA_RE))
+    expected = [re for re, _ in samples]
+    assert mid in expected, (
+        f"mid_data_re={mid} is not one of the injected real values {expected}"
+    )
+    cocotb.log.info(f"  mid_data_re={mid}  OK")
+    cocotb.log.info("test_mid_data_probe PASSED.")
+
+
+@cocotb.test()
+async def test_disable_midstream_stops_output(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_disable_midstream_stops_output ---")
+
+    await enable_fft_and_drain(dut)
+    await spi_write(dut, ADDR_SYS_CONFIG, CFG_DISABLE)
+    for _ in range(10):
+        await RisingEdge(dut.i_clk)
+
+    await drive_stream(dut, [(20, -20)] * N)
+    for _ in range(300):
+        await RisingEdge(dut.i_clk)
+        assert int(dut.o_data.value) == 0, (
+            "no output may be produced while the FFT core is disabled"
+        )
+
+    await soft_reset_between_blocks(dut, CFG_ENABLE)
+    send_task = cocotb.start_soon(drive_stream(dut, [(0, 0)] * N))
+    received = await capture_block(dut, N)
+    await send_task
+    assert len(received) == N, "the core must resume after being re-enabled"
+    cocotb.log.info("test_disable_midstream_stops_output PASSED.")
+
+
+@cocotb.test()
+async def test_hard_reset_between_blocks(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    cocotb.log.info("--- test_hard_reset_between_blocks ---")
+
+    for block in range(3):
+        await full_reset(dut)
+        await enable_fft_and_drain(dut)
+        await run_roundtrip(dut, inverse=0, seed=500 + block)
+        cocotb.log.info(f"  block {block} after a hard reset  OK")
+    cocotb.log.info("test_hard_reset_between_blocks PASSED.")
+
+
+@cocotb.test()
+async def test_long_mixed_mode_session(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await full_reset(dut)
+    cocotb.log.info("--- test_long_mixed_mode_session ---")
+
+    schedule = [0, 0, 1, 1, 0, 1, 0, 0]
+    current = None
+    for idx, inverse in enumerate(schedule):
+        if current != inverse:
+            if current is None:
+                await enable_and_drain(dut, inverse)
+            else:
+                await soft_reset_between_blocks(
+                    dut, CFG_ENABLE_IFFT if inverse else CFG_ENABLE
+                )
+            current = inverse
+        await run_roundtrip(dut, inverse=inverse, seed=600 + idx)
+        cocotb.log.info(f"  block {idx} ({'IFFT' if inverse else 'FFT'})  OK")
+    cocotb.log.info("test_long_mixed_mode_session PASSED.")

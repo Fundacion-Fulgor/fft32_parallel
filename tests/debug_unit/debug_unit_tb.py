@@ -17,22 +17,22 @@ ADDR_SYS_CONFIG   = 0x10
 
 
 async def reset_dut(dut):
-    dut.rst_n.value        = 0
-    dut.spi_addr.value     = 0
-    dut.spi_wdata.value    = 0
-    dut.spi_rw.value       = 1   # default READ
-    dut.spi_ss_n.value     = 1
-    dut.status_flags.value = 0
-    dut.error_flags.value  = 0
-    dut.cnt_inputs.value   = 0
-    dut.cnt_outputs.value  = 0
-    dut.last_out_re.value  = 0
-    dut.last_out_im.value  = 0
-    dut.mid_data_re.value  = 0
+    dut.i_rstn.value        = 0
+    dut.i_spi_addr.value     = 0
+    dut.i_spi_wdata.value    = 0
+    dut.i_spi_rw.value       = 1   # default READ
+    dut.i_spi_ss_n.value     = 1
+    dut.i_status_flags.value = 0
+    dut.i_error_flags.value  = 0
+    dut.i_cnt_inputs.value   = 0
+    dut.i_cnt_outputs.value  = 0
+    dut.i_last_out_re.value  = 0
+    dut.i_last_out_im.value  = 0
+    dut.i_mid_data_re.value  = 0
     for _ in range(4):
-        await RisingEdge(dut.clk)
-    dut.rst_n.value = 1
-    await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
+    dut.i_rstn.value = 1
+    await RisingEdge(dut.i_clk)
 
 
 async def trigger_snapshot(dut):
@@ -41,12 +41,12 @@ async def trigger_snapshot(dut):
     then releases it. rw_rw stays 1 (READ) so no write is committed.
     """
     await Timer(CLK_SPI_NS, unit="ns")
-    dut.spi_ss_n.value = 0
+    dut.i_spi_ss_n.value = 0
     for _ in range(5):
-        await RisingEdge(dut.clk)
-    dut.spi_ss_n.value = 1
+        await RisingEdge(dut.i_clk)
+    dut.i_spi_ss_n.value = 1
     for _ in range(6):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
 
 async def spi_write(dut, addr, data):
@@ -59,18 +59,18 @@ async def spi_write(dut, addr, data):
     ss_n rises  -> commit_pulse captures addr/wdata/rw_snap
     commit_pulse_q -> sys_config written
     """
-    dut.spi_rw.value    = 0   # WRITE
-    dut.spi_addr.value  = addr
-    dut.spi_wdata.value = data
+    dut.i_spi_rw.value    = 0   # WRITE
+    dut.i_spi_addr.value  = addr
+    dut.i_spi_wdata.value = data
     await Timer(CLK_SPI_NS, unit="ns")
-    dut.spi_ss_n.value = 0
+    dut.i_spi_ss_n.value = 0
     for _ in range(5):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
     await Timer(CLK_SPI_NS, unit="ns")
-    dut.spi_ss_n.value = 1
+    dut.i_spi_ss_n.value = 1
     for _ in range(6):
-        await RisingEdge(dut.clk)
-    dut.spi_rw.value = 1   # back to READ
+        await RisingEdge(dut.i_clk)
+    dut.i_spi_rw.value = 1   # back to READ
 
 
 async def spi_read(dut, addr):
@@ -78,9 +78,9 @@ async def spi_read(dut, addr):
     Reads spi_rdata combinationally via spi_addr directly.
     No transaction needed — frozen snapshot values remain stable.
     """
-    dut.spi_addr.value = addr
-    await RisingEdge(dut.clk)
-    return int(dut.spi_rdata.value)
+    dut.i_spi_addr.value = addr
+    await RisingEdge(dut.i_clk)
+    return int(dut.o_spi_rdata.value)
 
 
 @cocotb.test()
@@ -90,13 +90,13 @@ async def test_sys_config_write(dut):
     Uses spi_rw=0 (WRITE) stable before ss_n falls, mimicking real
     spi_slave_mode0 behavior where rw_bit is latched at the 8th sclk cycle.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_sys_config_write ---")
 
     for val in [0b000, 0b001, 0b010, 0b011, 0b100, 0b101, 0b110, 0b111]:
         await spi_write(dut, ADDR_SYS_CONFIG, val)
-        got = int(dut.sys_config.value)
+        got = int(dut.o_sys_config.value)
         assert got == val, \
             f"sys_config mismatch: wrote {val:#05b}, got {got:#05b}"
         cocotb.log.info(f"  sys_config = {val:#05b}  OK")
@@ -109,7 +109,7 @@ async def test_sys_config_readback(dut):
     """
     Writes sys_config and reads it back via spi_rdata.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_sys_config_readback ---")
 
@@ -129,20 +129,20 @@ async def test_status_snapshot(dut):
     Sets known values on all probe inputs, triggers a snapshot explicitly,
     then reads each register and verifies the frozen value.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_status_snapshot ---")
 
-    dut.status_flags.value = 0xAB
-    dut.error_flags.value  = 0x01
-    dut.cnt_inputs.value   = 0x42
-    dut.cnt_outputs.value  = 0x10
-    dut.last_out_re.value  = 0x7F
-    dut.last_out_im.value  = 0x3C
-    dut.mid_data_re.value  = 0x55
+    dut.i_status_flags.value = 0xAB
+    dut.i_error_flags.value  = 0x01
+    dut.i_cnt_inputs.value   = 0x42
+    dut.i_cnt_outputs.value  = 0x10
+    dut.i_last_out_re.value  = 0x7F
+    dut.i_last_out_im.value  = 0x3C
+    dut.i_mid_data_re.value  = 0x55
 
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     await trigger_snapshot(dut)
 
@@ -172,34 +172,34 @@ async def test_cdc_snapshot_freeze(dut):
     the frozen snapshot. The snapshot captures what was present at the
     falling edge of ss_n.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_cdc_snapshot_freeze ---")
 
-    dut.cnt_inputs.value  = 0x11
-    dut.cnt_outputs.value = 0x22
-    dut.last_out_re.value = 0x33
-    dut.last_out_im.value = 0x44
+    dut.i_cnt_inputs.value  = 0x11
+    dut.i_cnt_outputs.value = 0x22
+    dut.i_last_out_re.value = 0x33
+    dut.i_last_out_im.value = 0x44
 
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     await Timer(CLK_SPI_NS, unit="ns")
-    dut.spi_ss_n.value = 0
+    dut.i_spi_ss_n.value = 0
     for _ in range(5):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     # Change inputs while ss_n is still low — must not affect frozen snapshot
-    dut.cnt_inputs.value  = 0xFF
-    dut.cnt_outputs.value = 0xEE
-    dut.last_out_re.value = 0xDD
-    dut.last_out_im.value = 0xCC
+    dut.i_cnt_inputs.value  = 0xFF
+    dut.i_cnt_outputs.value = 0xEE
+    dut.i_last_out_re.value = 0xDD
+    dut.i_last_out_im.value = 0xCC
 
     for _ in range(5):
-        await RisingEdge(dut.clk)
-    dut.spi_ss_n.value = 1
+        await RisingEdge(dut.i_clk)
+    dut.i_spi_ss_n.value = 1
     for _ in range(6):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
 
     checks = [
         (ADDR_CNT_INPUTS,  0x11, "cnt_inputs"),
@@ -223,14 +223,14 @@ async def test_cdc_snapshot_update(dut):
     Two consecutive snapshots with different values. Each must capture
     what was present at its respective ss_n falling edge.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_cdc_snapshot_update ---")
 
-    dut.cnt_inputs.value  = 0xAA
-    dut.last_out_re.value = 0xBB
+    dut.i_cnt_inputs.value  = 0xAA
+    dut.i_last_out_re.value = 0xBB
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
     await trigger_snapshot(dut)
 
     got_inputs = await spi_read(dut, ADDR_CNT_INPUTS)
@@ -243,10 +243,10 @@ async def test_cdc_snapshot_update(dut):
         f"  First snapshot: cnt_inputs={got_inputs:#04x}  last_out_re={got_re:#04x}  OK"
     )
 
-    dut.cnt_inputs.value  = 0x12
-    dut.last_out_re.value = 0x34
+    dut.i_cnt_inputs.value  = 0x12
+    dut.i_last_out_re.value = 0x34
     for _ in range(3):
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.i_clk)
     await trigger_snapshot(dut)
 
     got_inputs = await spi_read(dut, ADDR_CNT_INPUTS)
@@ -267,7 +267,7 @@ async def test_default_address(dut):
     """
     Reads from unmapped addresses and verifies spi_rdata returns 0x00.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_default_address ---")
 
@@ -286,7 +286,7 @@ async def test_random_snapshot(dut):
     Random probe values, random settle time, explicit snapshot trigger,
     then inputs change and frozen values are verified.
     """
-    cocotb.start_soon(Clock(dut.clk, CLK_SYS_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
     await reset_dut(dut)
     cocotb.log.info("--- test_random_snapshot ---")
 
@@ -304,19 +304,19 @@ async def test_random_snapshot(dut):
         }
 
         for name, val in vals.items():
-            getattr(dut, name).value = val
+            getattr(dut, "i_" + name).value = val
 
         for _ in range(random.randint(2, 8)):
-            await RisingEdge(dut.clk)
+            await RisingEdge(dut.i_clk)
 
         await trigger_snapshot(dut)
 
         # Change all inputs after snapshot
         for name in vals:
-            getattr(dut, name).value = random.randint(0, 0xFF)
+            getattr(dut, "i_" + name).value = random.randint(0, 0xFF)
 
         for _ in range(3):
-            await RisingEdge(dut.clk)
+            await RisingEdge(dut.i_clk)
 
         checks = [
             (ADDR_STATUS_FLAGS, vals["status_flags"], "status_flags"),
@@ -336,3 +336,204 @@ async def test_random_snapshot(dut):
         cocotb.log.info(f"  Iteration {iteration} PASSED")
 
     cocotb.log.info("test_random_snapshot PASSED.")
+
+PROBE_SIGNALS = [
+    ("status_flags", ADDR_STATUS_FLAGS),
+    ("error_flags", ADDR_ERROR_FLAGS),
+    ("cnt_inputs", ADDR_CNT_INPUTS),
+    ("cnt_outputs", ADDR_CNT_OUTPUTS),
+    ("last_out_re", ADDR_LAST_OUT_RE),
+    ("last_out_im", ADDR_LAST_OUT_IM),
+    ("mid_data_re", ADDR_MID_DATA_RE),
+]
+
+MAPPED_ADDRESSES = [addr for _, addr in PROBE_SIGNALS] + [ADDR_SYS_CONFIG]
+
+
+async def set_probes_and_snapshot(dut, value_map):
+    for name, value in value_map.items():
+        getattr(dut, "i_" + name).value = value
+    for _ in range(3):
+        await RisingEdge(dut.i_clk)
+    await trigger_snapshot(dut)
+
+
+@cocotb.test()
+async def test_reset_state(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    assert int(dut.o_sys_config.value) == 0, "sys_config must reset to 0b000"
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == 0, f"{name} snapshot must reset to 0, got {got:#04x}"
+    cocotb.log.info("All snapshot registers and sys_config reset to zero OK")
+
+
+@cocotb.test()
+async def test_exhaustive_probe_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(0, 256, 5):
+        await set_probes_and_snapshot(dut, {name: value for name, _ in PROBE_SIGNALS})
+        for name, addr in PROBE_SIGNALS:
+            got = await spi_read(dut, addr)
+            assert got == value, (
+                f"{name}: expected {value:#04x}, got {got:#04x}"
+            )
+    cocotb.log.info("Swept probe values across the full 8-bit range OK")
+
+
+@cocotb.test()
+async def test_each_probe_is_independent(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for target, target_addr in PROBE_SIGNALS:
+        values = {name: 0x00 for name, _ in PROBE_SIGNALS}
+        values[target] = 0xA5
+        await set_probes_and_snapshot(dut, values)
+        for name, addr in PROBE_SIGNALS:
+            got = await spi_read(dut, addr)
+            expected = 0xA5 if name == target else 0x00
+            assert got == expected, (
+                f"reading {name} while only {target} was set: "
+                f"expected {expected:#04x}, got {got:#04x}"
+            )
+        cocotb.log.info(f"  {target} @ {target_addr:#04x} is independent OK")
+    cocotb.log.info("Each probe maps to its own address OK")
+
+
+@cocotb.test()
+async def test_all_unmapped_addresses_read_zero(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await set_probes_and_snapshot(dut, {name: 0xFF for name, _ in PROBE_SIGNALS})
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b111)
+
+    for addr in range(128):
+        if addr in MAPPED_ADDRESSES:
+            continue
+        got = await spi_read(dut, addr)
+        assert got == 0x00, (
+            f"unmapped address {addr:#04x} must read 0x00, got {got:#04x}"
+        )
+    cocotb.log.info("All 120 unmapped addresses read back zero OK")
+
+
+@cocotb.test()
+async def test_write_to_read_only_address_ignored(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b101)
+    assert int(dut.o_sys_config.value) == 0b101
+
+    for _, addr in PROBE_SIGNALS:
+        await spi_write(dut, addr, 0b010)
+        assert int(dut.o_sys_config.value) == 0b101, (
+            f"a write to {addr:#04x} must not change sys_config"
+        )
+    cocotb.log.info("Writes to probe addresses never touch sys_config OK")
+
+
+@cocotb.test()
+async def test_read_transaction_does_not_write(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b011)
+    assert int(dut.o_sys_config.value) == 0b011
+
+    dut.i_spi_rw.value = 1
+    dut.i_spi_addr.value = ADDR_SYS_CONFIG
+    dut.i_spi_wdata.value = 0b100
+    for _ in range(5):
+        await trigger_snapshot(dut)
+        assert int(dut.o_sys_config.value) == 0b011, (
+            "a READ transaction must never commit write data"
+        )
+    cocotb.log.info("Read transactions do not modify sys_config OK")
+
+
+@cocotb.test()
+async def test_sys_config_uses_low_three_bits(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(256):
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        got = int(dut.o_sys_config.value)
+        assert got == (value & 0b111), (
+            f"wrote {value:#04x}: expected sys_config {value & 0b111:#05b}, "
+            f"got {got:#05b}"
+        )
+    cocotb.log.info("All 256 write values map to the low three sys_config bits OK")
+
+
+@cocotb.test()
+async def test_sys_config_readback_upper_bits_zero(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    for value in range(8):
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        got = await spi_read(dut, ADDR_SYS_CONFIG)
+        assert got == value, (
+            f"sys_config readback: expected {value:#04x}, got {got:#04x}"
+        )
+    cocotb.log.info("sys_config reads back with zeroed upper bits OK")
+
+
+@cocotb.test()
+async def test_snapshot_not_triggered_without_ss_n(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await set_probes_and_snapshot(dut, {name: 0x3C for name, _ in PROBE_SIGNALS})
+    for name, _ in PROBE_SIGNALS:
+        getattr(dut, "i_" + name).value = 0xC3
+    for _ in range(40):
+        await RisingEdge(dut.i_clk)
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == 0x3C, (
+            f"{name} changed without a new ss_n falling edge: got {got:#04x}"
+        )
+    cocotb.log.info("Probes stay frozen until the next ss_n falling edge OK")
+
+
+@cocotb.test()
+async def test_repeated_config_writes(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    random.seed(141)
+    for _ in range(60):
+        value = random.randint(0, 7)
+        await spi_write(dut, ADDR_SYS_CONFIG, value)
+        assert int(dut.o_sys_config.value) == value, (
+            f"sys_config write failed for {value:#05b}"
+        )
+        got = await spi_read(dut, ADDR_SYS_CONFIG)
+        assert got == value, f"sys_config readback failed for {value:#05b}"
+    cocotb.log.info("60 random back-to-back config writes OK")
+
+
+@cocotb.test()
+async def test_reset_clears_config_and_snapshots(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_SYS_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    await spi_write(dut, ADDR_SYS_CONFIG, 0b111)
+    await set_probes_and_snapshot(dut, {name: 0xFF for name, _ in PROBE_SIGNALS})
+    assert int(dut.o_sys_config.value) == 0b111
+
+    await reset_dut(dut)
+    assert int(dut.o_sys_config.value) == 0, "reset must clear sys_config"
+    for name, addr in PROBE_SIGNALS:
+        got = await spi_read(dut, addr)
+        assert got == 0, f"reset must clear the {name} snapshot, got {got:#04x}"
+    cocotb.log.info("Reset clears both config and all snapshots OK")

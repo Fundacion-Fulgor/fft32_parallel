@@ -15,11 +15,11 @@ def to_signed_8(val):
 
 
 async def reset_dut(dut):
-    dut.i_rst_n.value = 0
+    dut.i_rstn.value = 0
     dut.i_data.value  = 0
     for _ in range(4):
         await RisingEdge(dut.i_clk)
-    dut.i_rst_n.value = 1
+    dut.i_rstn.value = 1
     await RisingEdge(dut.i_clk)
 
 
@@ -211,3 +211,179 @@ async def test_spurious_then_valid(dut):
         cocotb.log.info(f"  [{idx:2d}] Re={got_re:+4d} Im={got_im:+4d}  OK")
 
     cocotb.log.info("test_spurious_then_valid PASSED.")
+
+EXTREMES = [-128, -127, -1, 0, 1, 126, 127]
+
+
+def random_pairs(rng, count=N_DATA):
+    return [
+        (rng.randint(-128, 127), rng.randint(-128, 127)) for _ in range(count)
+    ]
+
+
+async def send_and_check(dut, pairs, context=""):
+    cocotb.start_soon(drive_stream(dut, pairs))
+    results = await monitor_stream(dut, len(pairs))
+    for idx, ((re_val, im_val), (got_re, got_im)) in enumerate(zip(pairs, results)):
+        assert got_re == to_signed_8(re_val) and got_im == to_signed_8(im_val), (
+            f"{context}[{idx}] expected "
+            f"({to_signed_8(re_val)},{to_signed_8(im_val)}), got ({got_re},{got_im})"
+        )
+    return results
+
+
+@cocotb.test()
+async def test_extreme_values(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    pairs = [
+        (EXTREMES[i % 7], EXTREMES[(i * 3) % 7]) for i in range(N_DATA)
+    ]
+    await send_and_check(dut, pairs)
+    cocotb.log.info("Full-scale signed values are deserialised correctly OK")
+
+
+@cocotb.test()
+async def test_many_consecutive_batches(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(111)
+    for batch in range(12):
+        pairs = random_pairs(rng)
+        await send_and_check(dut, pairs, f"batch {batch}: ")
+        for _ in range(rng.randint(1, 12)):
+            await RisingEdge(dut.i_clk)
+    cocotb.log.info("12 consecutive batches with random idle gaps OK")
+
+
+@cocotb.test()
+async def test_no_gap_between_batches(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(112)
+    for batch in range(6):
+        pairs = random_pairs(rng)
+        await send_and_check(dut, pairs, f"batch {batch}: ")
+    cocotb.log.info("Batches sent back to back with no idle time OK")
+
+
+@cocotb.test()
+async def test_all_ones_payload(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    pairs = [(-1, -1)] * N_DATA
+    await send_and_check(dut, pairs)
+    cocotb.log.info("An all-ones payload does not retrigger the start detector OK")
+
+
+@cocotb.test()
+async def test_idle_low_produces_no_output(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    dut.i_data.value = 0
+    for _ in range(300):
+        await RisingEdge(dut.i_clk)
+        assert dut.o_valid.value == 0, "an idle low line must not produce samples"
+    cocotb.log.info("A line held low never produces a sample OK")
+
+
+@cocotb.test()
+async def test_reception_after_long_idle(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(113)
+    await send_and_check(dut, random_pairs(rng), "first: ")
+
+    dut.i_data.value = 0
+    for _ in range(500):
+        await RisingEdge(dut.i_clk)
+        assert dut.o_valid.value == 0, "no samples expected during the idle gap"
+
+    await send_and_check(dut, random_pairs(rng), "second: ")
+    cocotb.log.info("Reception resumes after a long idle gap OK")
+
+
+@cocotb.test()
+async def test_reset_midframe(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    dut.i_data.value = 0
+    await RisingEdge(dut.i_clk)
+    dut.i_data.value = 1
+    for _ in range(40):
+        await RisingEdge(dut.i_clk)
+    await reset_dut(dut)
+    assert dut.o_valid.value == 0, "reset must clear o_valid"
+
+    rng = random.Random(114)
+    pairs = random_pairs(rng)
+    await send_and_check(dut, pairs)
+    cocotb.log.info("Reset in the middle of a frame recovers cleanly OK")
+
+
+@cocotb.test()
+async def test_sample_counter_wraps(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(115)
+    total = 0
+    for batch in range(5):
+        pairs = random_pairs(rng)
+        results = await send_and_check(dut, pairs, f"batch {batch}: ")
+        assert len(results) == N_DATA, (
+            f"batch {batch} produced {len(results)} samples instead of {N_DATA}"
+        )
+        total += len(results)
+    assert total == 5 * N_DATA
+    cocotb.log.info(f"Sample counter wraps correctly over {total} samples OK")
+
+
+@cocotb.test()
+async def test_valid_count_per_batch(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(116)
+    pairs = random_pairs(rng)
+    sender = cocotb.start_soon(drive_stream(dut, pairs))
+
+    pulses = 0
+    for _ in range((N_DATA * 2 * NB_DATA) + 40):
+        await RisingEdge(dut.i_clk)
+        pulses += int(dut.o_valid.value)
+    await sender
+    assert pulses == N_DATA, (
+        f"expected exactly {N_DATA} valid pulses in one batch, got {pulses}"
+    )
+    cocotb.log.info(f"Exactly {N_DATA} valid pulses per batch OK")
+
+
+@cocotb.test()
+async def test_alternating_bit_pattern(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    pairs = [(-86 if i % 2 else 85, -86 if i % 2 else 85)
+             for i in range(N_DATA)]
+    await send_and_check(dut, pairs)
+    cocotb.log.info("Alternating bit patterns deserialise without bit slips OK")
+
+
+@cocotb.test()
+async def test_long_random_stream(dut):
+    cocotb.start_soon(Clock(dut.i_clk, CLK_NS, unit="ns").start())
+    await reset_dut(dut)
+
+    rng = random.Random(117)
+    for batch in range(25):
+        pairs = random_pairs(rng)
+        await send_and_check(dut, pairs, f"batch {batch}: ")
+    cocotb.log.info("25 random batches, 400 samples total OK")
