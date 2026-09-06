@@ -18,6 +18,12 @@ for dir in */; do
   if [ ! -e "$dir/Makefile" ] && [ ! -e "$dir/makefile" ]; then
     continue
   fi
+  case " ${SKIP_TESTS:-gls} " in
+    *" $test_name "*)
+      echo -e "\nSkipping ${GREEN}$test_name${NC} (gate level, run it by hand)"
+      continue
+      ;;
+  esac
   echo -e "\nRunning tests in: ${GREEN}$test_name${NC}"
   echo "-------------------------------------------------"
   if make -C "$dir"; then
